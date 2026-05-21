@@ -284,9 +284,36 @@ export class SignalingService {
     // Stop any stale stream before requesting a fresh one
     this.stopLocalWebcam();
 
+    let stream: MediaStream | null = null;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    } catch (error: any) {
+      console.warn('Failed to access both video and audio. Error name:', error.name);
+      
+      // If permission was explicitly denied, do not retry with fallback
+      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+        console.error('Webcam/microphone permission denied.');
+      } else {
+        // Try fallback: video-only
+        try {
+          console.log('Attempting video-only fallback...');
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        } catch (videoError: any) {
+          console.warn('Failed video-only fallback:', videoError.name);
+          if (videoError.name !== 'NotAllowedError' && videoError.name !== 'PermissionDeniedError') {
+            // Try fallback: audio-only
+            try {
+              console.log('Attempting audio-only fallback...');
+              stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+            } catch (audioError) {
+              console.error('All media device access options failed:', audioError);
+            }
+          }
+        }
+      }
+    }
 
+    if (stream) {
       setTimeout(() => {
         this.localWebcamStream.set(stream);
       });
@@ -302,10 +329,9 @@ export class SignalingService {
         });
       }
       return stream;
-    } catch (error) {
-      console.error('Error accessing media devices.', error);
-      return null;
     }
+    
+    return null;
   }
 
   public stopLocalWebcam() {
