@@ -48,16 +48,22 @@ export class LobbyComponent {
     });
   }
 
-  public onSubmit() {
+  public async onSubmit(event?: Event) {
+    if (event) {
+      event.preventDefault();
+    }
     if (!this.username().trim()) return;
 
     let targetRoomId = this.roomId().trim();
+    let isHost = false;
+
     if (!targetRoomId) {
       // Create a random room ID
       targetRoomId = Math.random().toString(36).substring(2, 9).toUpperCase();
+      isHost = true;
     }
 
-    this.signalingService.joinRoom(targetRoomId, this.username());
+    await this.signalingService.joinRoom(targetRoomId, this.username(), isHost);
     this.router.navigate(['/room', targetRoomId]);
   }
 }

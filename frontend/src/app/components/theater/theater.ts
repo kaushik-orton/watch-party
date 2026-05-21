@@ -31,19 +31,24 @@ export class TheaterComponent implements AfterViewInit, OnDestroy {
   public webcamError = signal<string>('');
   public isRemoteInPiP = signal(false);
   public isRecording = signal<'local' | 'remote' | null>(null);
+  public showScreenShareHelp = signal(true);
   private mediaRecorder: MediaRecorder | null = null;
   private recordedChunks: Blob[] = [];
   public isControlsMinimized = signal(false);
+  public isControlsCollapsed = signal(false);
+  public isWaitingBubbleCollapsed = signal(false);
+  public isRemoteBubbleCollapsed = signal(false);
 
 
   // Floating bubbles draggable positions
   public localBubblePos = signal({ x: 20, y: 20 });
   public remoteBubblePos = signal({ x: 20, y: 200 });
-  private activeDragging: 'local' | 'remote' | null = null;
+  public controlsPos = signal({ x: window.innerWidth / 2 - 260, y: window.innerHeight - 120 });
+  private activeDragging: 'local' | 'remote' | 'controls' | null = null;
   private dragOffset = { x: 0, y: 0 };
 
   // Floating emojis for reactions
-  public reactionsList = signal<{ id: string; emoji: string; left: number }[]>([]);
+  public reactionsList = signal<{ id: string; emoji: string; style: string }[]>([]);
 
   constructor() {
     // Sync local custom player states when we get playback-sync events from socket
@@ -129,7 +134,10 @@ export class TheaterComponent implements AfterViewInit, OnDestroy {
     // Automatically start webcam when joining room
     this.signalingService.startLocalWebcam().then(stream => {
       if (!stream) {
-        this.webcamError.set('Camera/Microphone permission denied or unavailable.');
+        const secureContextHint = window.isSecureContext
+          ? 'Please allow camera permission in your browser site settings.'
+          : 'Camera requires a secure context. Use localhost/HTTPS.';
+        this.webcamError.set(`Camera and microphone are both required. ${secureContextHint}`);
       } else {
         this.webcamError.set('');
       }
@@ -186,58 +194,132 @@ export class TheaterComponent implements AfterViewInit, OnDestroy {
           }
 
           // Share this stream via the screen peer connection
-          this.signalingService.localScreenStream.set(stream);
-          this.signalingService.isScreenSharing.set(true);
-          // Connect to the guest
-          const guest = this.signalingService.users().find(u => u.socketId !== this.signalingService.currentUser()?.socketId);
-          if (guest) {
-            // Trigger remote connection
-            this.signalingService.initiateScreenCall(guest.socketId, 'file');
-          }
+          this.signalingService.setLocalFileStream(stream, file.name);
         };
       }
     }, 100);
   }
 
-  // --- PLAYBACK CONTROL HANDLERS (FOR CUSTOM PLAYER) ---
+  // --- SUBTITLES ---
+  public onSubtitleSelected(event: Event) {
+    const input = event.target as HTMLInputElement;
+    if (input.files && input.files[0]) {
+      const file = input.files[0];
+      const reader = new FileReader();
+      
+      reader.onload = (e) => {
+        let text = e.target?.result as string;
+        
+        // Convert basic SRT to WebVTT
+        if (file.name.toLowerCase().endsWith('.srt')) {
+          text = 'WEBVTT\n\n' + text.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
+        }
+        
+        const blob = new Blob([text], { type: 'text/vtt' });
+        const url = URL.createObjectURL(blob);
+        
+        const videoElement = document.getElementById('watch-player') as HTMLVideoElement;
+        if (videoElement) {
+          // Remove existing track if any
+          const existingTrack = videoElement.querySelector('track');
+          if (existingTrack) {
+            existingTrack.remove();
+          }
+          
+          const track = document.createElement('track');
+          track.kind = 'subtitles';
+          track.label = 'Custom Subtitles';
+          track.srclang = 'en';
+          track.src = url;
+          track.default = true;
+          
+          videoElement.appendChild(track);
+          
+          // Force track to show
+          if (videoElement.textTracks && videoElement.textTracks.length > 0) {
+             const t = videoElement.textTracks[videoElement.textTracks.length - 1];
+             t.mode = 'showing';
+          }
+        }
+      };
+      
+      reader.readAsText(file);
+    }
+    
+    // Clear input so they can re-select the same file if needed
+    input.value = '';
+  }
+
+  public searchSubtitlesOnline() {
+    let filename = '';
+    if (this.signalingService.currentUser()?.isHost) {
+      filename = this.selectedVideoFileName();
+    } else {
+      filename = this.signalingService.remoteVideoFileName();
+    }
+    if (!filename) return;
+    
+    // Strip common video extensions
+    let cleanName = filename.replace(/\.(mp4|mkv|webm|avi|mov)$/i, '');
+    
+    // Optional: replace dots with spaces for cleaner search (common in movie torrent names)
+    cleanName = cleanName.replace(/\./g, ' ');
+    
+    // Encode for URL
+    const query = encodeURIComponent(cleanName);
+    
+    // OpenSubtitles search URL
+    const url = `https://www.opensubtitles.org/en/search/sublanguageid-all/moviename-${query}`;
+    window.open(url, '_blank');
+  }
+
   public handlePlay() {
     const videoElement = document.getElementById('watch-player') as HTMLVideoElement;
     if (videoElement) {
-      this.signalingService.sendPlaybackSync('play', videoElement.currentTime, videoElement.playbackRate);
+      this.signalingService.updatePlaybackState(true, videoElement.currentTime, videoElement.playbackRate);
     }
   }
 
   public handlePause() {
     const videoElement = document.getElementById('watch-player') as HTMLVideoElement;
     if (videoElement) {
-      this.signalingService.sendPlaybackSync('pause', videoElement.currentTime, videoElement.playbackRate);
+      this.signalingService.updatePlaybackState(false, videoElement.currentTime, videoElement.playbackRate);
     }
   }
 
   public handleSeek() {
     const videoElement = document.getElementById('watch-player') as HTMLVideoElement;
     if (videoElement) {
-      this.signalingService.sendPlaybackSync('seek', videoElement.currentTime, videoElement.playbackRate);
+      this.signalingService.updatePlaybackState(!videoElement.paused, videoElement.currentTime, videoElement.playbackRate);
     }
   }
 
   public guestTogglePlay() {
     const isPlaying = this.signalingService.playbackState().playing;
-    const action = isPlaying ? 'pause' : 'play';
     // Send time as -1 to indicate NO SEEKING, just state change.
-    this.signalingService.sendPlaybackSync(action, -1);
+    this.signalingService.updatePlaybackState(!isPlaying, -1, 1);
   }
 
   // --- SCREEN SHARE CONTROL ---
   public startScreenSharing() {
+    this.showScreenShareHelp.set(true);
     this.signalingService.startScreenShare();
     this.showShareMenu.set(false);
   }
 
   public stopScreenSharing() {
-    this.signalingService.stopLocalScreen();
+    this.signalingService.stopScreenShare();
     this.hasLocalFileLoaded.set(false);
     this.selectedVideoFileName.set('');
+    this.showScreenShareHelp.set(true);
+  }
+
+  public closeScreenShareHelp() {
+    this.showScreenShareHelp.set(false);
+  }
+
+  public openScreenShareHelp() {
+    this.showScreenShareHelp.set(true);
   }
 
   // --- CHAT MANAGEMENT ---
@@ -261,15 +343,29 @@ export class TheaterComponent implements AfterViewInit, OnDestroy {
   }
 
   private triggerFloatingEmoji(emoji: string) {
-    const id = Math.random().toString(36).substring(2, 9);
-    const left = Math.floor(Math.random() * 80) + 10; // Random horizontal placement (10% to 90%)
-    
-    this.reactionsList.update(prev => [...prev, { id, emoji, left }]);
+    const numEmojis = 10;
+    const newEmojis: { id: string; emoji: string; style: string }[] = [];
 
-    // Remove emoji from list after animation ends (3s)
+    for (let i = 0; i < numEmojis; i++) {
+      const id = Math.random().toString(36).substring(2, 9);
+      const startX = `${18 + Math.random() * 64}vw`;
+      const startY = `${74 + Math.random() * 12}vh`;
+      const driftX = `${(Math.random() - 0.5) * 22}vw`;
+      const riseY = `${12 + Math.random() * 16}vh`;
+      const scale = (Math.random() * 0.35 + 0.8).toFixed(2);
+      const duration = (Math.random() * 0.8 + 1.8).toFixed(2);
+      const delay = (Math.random() * 0.25).toFixed(2);
+      const style = `--start-x: ${startX}; --start-y: ${startY}; --drift-x: ${driftX}; --rise-y: ${riseY}; --scale: ${scale}; --duration: ${duration}s; --delay: ${delay}s;`;
+
+      newEmojis.push({ id, emoji, style });
+    }
+
+    this.reactionsList.update(prev => [...prev, ...newEmojis]);
+
     setTimeout(() => {
-      this.reactionsList.update(prev => prev.filter(r => r.id !== id));
-    }, 3000);
+      const idsToRemove = new Set(newEmojis.map(e => e.id));
+      this.reactionsList.update(prev => prev.filter(r => !idsToRemove.has(r.id)));
+    }, 3200);
   }
 
   // --- VIDEO ELEMENT HELPERS ---
@@ -281,7 +377,7 @@ export class TheaterComponent implements AfterViewInit, OnDestroy {
   }
 
   public getPartnerName(): string {
-    const partner = this.signalingService.users().find(u => u.socketId !== this.signalingService.currentUser()?.socketId);
+    const partner = this.signalingService.users().find(u => u.id !== this.signalingService.currentUser()?.id);
     return partner ? partner.username : 'Partner';
   }
 
@@ -308,7 +404,10 @@ export class TheaterComponent implements AfterViewInit, OnDestroy {
     this.webcamError.set('');
     this.signalingService.startLocalWebcam().then(stream => {
       if (!stream) {
-        this.webcamError.set('Camera/Microphone permission denied or unavailable.');
+        const secureContextHint = window.isSecureContext
+          ? 'Please allow camera permission in your browser site settings.'
+          : 'Camera requires a secure context. Use localhost/HTTPS.';
+        this.webcamError.set(`Camera and microphone are both required. ${secureContextHint}`);
       } else {
         this.webcamError.set('');
       }
@@ -434,7 +533,7 @@ export class TheaterComponent implements AfterViewInit, OnDestroy {
   public copyRoomLink() {
     const roomUrl = `${window.location.origin}?room=${this.signalingService.currentRoomId()}`;
     navigator.clipboard.writeText(roomUrl).then(() => {
-      alert('Room invitation link copied to clipboard! Send it to Srinija.');
+      alert('Room invitation link copied to clipboard! Send it to your partner.');
     });
   }
 
@@ -443,14 +542,18 @@ export class TheaterComponent implements AfterViewInit, OnDestroy {
   }
 
   // --- DRAG CONTROLS FOR BUBBLES ---
-  public onDragStart(event: MouseEvent | TouchEvent, bubble: 'local' | 'remote') {
+  public onDragStart(event: MouseEvent | TouchEvent, bubble: 'local' | 'remote' | 'controls') {
     event.preventDefault();
     this.activeDragging = bubble;
     
     const clientX = event instanceof MouseEvent ? event.clientX : event.touches[0].clientX;
     const clientY = event instanceof MouseEvent ? event.clientY : event.touches[0].clientY;
     
-    const currentPos = bubble === 'local' ? this.localBubblePos() : this.remoteBubblePos();
+    const currentPos = bubble === 'local'
+      ? this.localBubblePos()
+      : bubble === 'remote'
+      ? this.remoteBubblePos()
+      : this.controlsPos();
     this.dragOffset = {
       x: clientX - currentPos.x,
       y: clientY - currentPos.y
@@ -474,10 +577,23 @@ export class TheaterComponent implements AfterViewInit, OnDestroy {
 
     if (this.activeDragging === 'local') {
       this.localBubblePos.set({ x: newX, y: newY });
-    } else {
+    } else if (this.activeDragging === 'remote') {
       this.remoteBubblePos.set({ x: newX, y: newY });
+    } else {
+      this.controlsPos.set({ x: newX, y: newY });
     }
   };
+
+  public toggleControlBarCollapse() {
+    this.isControlsCollapsed.set(!this.isControlsCollapsed());
+    if (!this.isControlsCollapsed()) {
+      this.isControlsMinimized.set(false);
+    }
+  }
+
+  public toggleRemoteBubbleCollapse() {
+    this.isRemoteBubbleCollapsed.set(!this.isRemoteBubbleCollapsed());
+  }
 
   private onDragEnd = () => {
     this.activeDragging = null;

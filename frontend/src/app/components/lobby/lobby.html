@@ -1,5 +1,22 @@
 <div class="lobby-container">
   
+  <!-- Painterly & Cinematic Background Elements -->
+  <div class="art-bg-layer">
+    <div class="art-brush-stroke stroke-1"></div>
+    <div class="art-brush-stroke stroke-2"></div>
+    <div class="art-brush-stroke stroke-3"></div>
+    <div class="art-projector-beam"></div>
+    <div class="art-dust-particles">
+      <span class="particle p1"></span>
+      <span class="particle p2"></span>
+      <span class="particle p3"></span>
+      <span class="particle p4"></span>
+      <span class="particle p5"></span>
+      <span class="particle p6"></span>
+      <span class="particle p7"></span>
+      <span class="particle p8"></span>
+    </div>
+  </div>
   <!-- Movie Posters on Left -->
   <div class="movie-poster left-poster inception">
     <div class="poster-inner">
@@ -145,7 +162,13 @@
       <p class="tagline">Sync, stream, and chat with your favorite person</p>
     </div>
 
-    <form (submit)="onSubmit()" class="lobby-form">
+    <form (submit)="onSubmit($event)" class="lobby-form">
+      <!-- Tabs -->
+      <div class="lobby-tabs">
+        <button type="button" class="lobby-tab" [class.active]="!isJoining()" (click)="isJoining.set(false); roomId.set('')">Host New Room</button>
+        <button type="button" class="lobby-tab" [class.active]="isJoining()" (click)="isJoining.set(true)">Join Existing</button>
+      </div>
+
       <div class="input-group">
         <label for="username">Your Name</label>
         <div class="input-wrapper">
@@ -155,30 +178,33 @@
             type="text"
             [(ngModel)]="username"
             name="username"
-            placeholder="Enter your name (e.g. Kaushik)"
+            placeholder="Enter your name"
             required
             autocomplete="off"
           />
         </div>
       </div>
 
-      <div class="input-group">
-        <label for="room-id">Room ID (optional)</label>
-        <div class="input-wrapper">
-          <span class="input-icon">🔑</span>
-          <input
-            id="room-id"
-            type="text"
-            [(ngModel)]="roomId"
-            name="roomId"
-            placeholder="Leave empty to create a new room"
-            autocomplete="off"
-          />
+      @if (isJoining()) {
+        <div class="input-group">
+          <label for="roomId">Room Code</label>
+          <div class="input-wrapper">
+            <span class="input-icon">🔑</span>
+            <input
+              id="roomId"
+              type="text"
+              [(ngModel)]="roomId"
+              name="roomId"
+              placeholder="Enter 7-digit room code"
+              required
+              autocomplete="off"
+            />
+          </div>
         </div>
-      </div>
+      }
 
-      <button type="submit" class="submit-btn" [disabled]="!username().trim()">
-        {{ isJoining() ? 'Join Srinija\'s Room' : 'Start Watch Party' }}
+      <button type="submit" class="submit-btn" [disabled]="!username().trim() || (isJoining() && !roomId().trim())">
+        {{ isJoining() ? 'Join Room' : 'Generate & Host Room' }}
       </button>
     </form>
 

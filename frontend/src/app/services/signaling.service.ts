@@ -1,9 +1,8 @@
 import { Injectable, signal, WritableSignal } from '@angular/core';
-import { io, Socket } from 'socket.io-client';
-import { environment } from '../../environments/environment';
+import { Peer, MediaConnection, DataConnection } from 'peerjs';
 
 export interface User {
-  socketId: string;
+  id: string; // Peer ID
   username: string;
   isHost: boolean;
 }
@@ -20,7 +19,9 @@ export interface ChatMessage {
   providedIn: 'root'
 })
 export class SignalingService {
-  private socket!: Socket;
+  private peer: Peer | null = null;
+  private dataConn: DataConnection | null = null;
+  private guestId: string | null = null; // Used by host to track guest peer ID
   
   // App states
   public currentRoomId = signal<string>('');
@@ -35,47 +36,141 @@ export class SignalingService {
   public isMuted = signal<boolean>(false);
   public isCameraOff = signal<boolean>(false);
 
-  // Screen/Movie Stream (Main screen)
+  // Screen/Movie Stream
   public localScreenStream = signal<MediaStream | null>(null);
   public remoteScreenStream = signal<MediaStream | null>(null);
   public isScreenSharing = signal<boolean>(false);
   public remoteStreamType = signal<'none' | 'screen' | 'file'>('none');
+  public hostScreenStreamType = signal<'none' | 'screen' | 'file'>('none'); // What the host is currently sharing
+  public hostScreenFileName = signal<string>('');
+  public remoteVideoFileName = signal<string>('');
 
-  // Playback sync stater control states (sync)
+  // Playback sync
   public playbackState = signal<{ playing: boolean; time: number; speed: number }>({
     playing: false,
     time: 0,
     speed: 1
   });
 
-  // Peer connections
-  private pcWebcam: RTCPeerConnection | null = null;
-  private pcScreen: RTCPeerConnection | null = null;
+  constructor() {}
 
-  // Signaling URL
-  private signalingUrl = environment.signalingServerUrl;
-
-  constructor() {
-    this.socket = io(this.signalingUrl, { autoConnect: false });
-    this.setupSocketListeners();
-  }
-
-  // Connect & Join
-  public joinRoom(roomId: string, username: string) {
+  // --- Connection Logic (Serverless) ---
+  
+  public joinRoom(roomId: string, username: string, isHost: boolean): Promise<void> {
     this.currentRoomId.set(roomId);
-    if (!this.socket.connected) {
-      this.socket.connect();
-    }
-    this.socket.emit('join-room', { roomId, username });
+    
+    return new Promise((resolve, reject) => {
+      if (isHost) {
+        // Host claims the specific room ID
+        this.peer = new Peer(roomId);
+        this.peer.on('open', (id) => {
+          this.currentUser.set({ id, username, isHost: true });
+          this.users.set([{ id, username, isHost: true }]);
+          resolve();
+        });
+        this.peer.on('error', (err) => {
+          console.error('PeerJS Error:', err);
+          reject(err);
+        });
+
+      // Host receives data connection from guest
+      this.peer.on('connection', (conn) => {
+        this.dataConn = conn;
+        this.guestId = conn.peer;
+        
+        const guestName = (conn.metadata as any)?.username || 'Guest';
+        this.users.update(u => [...u, { id: conn.peer, username: guestName, isHost: false }]);
+        
+        this.setupDataListeners(conn);
+        
+        // Send initial state to the guest once connected
+        conn.on('open', () => {
+          this.broadcast('users', { users: this.users() });
+          this.broadcast('sync', { state: this.playbackState() });
+          
+          // Call guest if our camera is already ready
+          if (this.localWebcamStream()) {
+            const call = this.peer!.call(this.guestId!, this.localWebcamStream()!, { metadata: { type: 'webcam' } });
+            call.on('stream', (remoteStream) => {
+              this.remoteWebcamStream.set(remoteStream);
+            });
+          }
+          
+          // If host is already sharing a screen/file, send it to the late-joining guest
+          if (this.localScreenStream() && this.hostScreenStreamType() !== 'none') {
+            this.initiateScreenCall(this.hostScreenStreamType() as 'screen' | 'file', this.hostScreenFileName());
+          }
+        });
+      });
+
+      // Host receives webcam call from guest
+      this.peer.on('call', (call) => {
+        if ((call.metadata as any)?.type === 'webcam') {
+          // Answer with our webcam (even if null)
+          call.answer(this.localWebcamStream() || undefined);
+          call.on('stream', (remoteStream) => {
+            this.remoteWebcamStream.set(remoteStream);
+          });
+        }
+      });
+      
+    } else {
+      // Guest creates a random peer and connects to the host
+      this.peer = new Peer();
+      this.peer.on('open', (id) => {
+        this.currentUser.set({ id, username, isHost: false });
+        resolve();
+        
+        // Open data connection
+        const conn = this.peer!.connect(roomId, { metadata: { username } });
+        this.dataConn = conn;
+        this.setupDataListeners(conn);
+        
+        // Once connected, call the host with our webcam
+        conn.on('open', () => {
+          if (this.localWebcamStream()) {
+            const call = this.peer!.call(roomId, this.localWebcamStream()!, { metadata: { type: 'webcam' } });
+            call.on('stream', (remoteStream) => {
+              this.remoteWebcamStream.set(remoteStream);
+            });
+          }
+        });
+      });
+      
+      // Guest receives calls from host
+      this.peer.on('call', (call) => {
+        if ((call.metadata as any)?.type === 'webcam') {
+          // Answer with our webcam (even if null)
+          call.answer(this.localWebcamStream() || undefined);
+          call.on('stream', (remoteStream) => {
+            this.remoteWebcamStream.set(remoteStream);
+          });
+        }
+        else if ((call.metadata as any)?.type === 'screen') {
+          call.answer(); // Answer without stream to just receive
+          const streamType = (call.metadata as any)?.streamType || 'screen';
+          this.remoteStreamType.set(streamType);
+          call.on('stream', (remoteStream) => {
+            this.remoteScreenStream.set(remoteStream);
+          });
+        }
+      });
+
+      this.peer.on('error', (err) => {
+        console.error('PeerJS Error:', err);
+        reject(err);
+      });
+      } // Closes else block
+    });
   }
 
-  // Disconnect & Leave
   public leaveRoom() {
-    this.socket.disconnect();
-    this.closeWebcamPeer();
-    this.closeScreenPeer();
+    if (this.peer) {
+      this.peer.destroy();
+      this.peer = null;
+    }
     this.stopLocalWebcam();
-    this.stopLocalScreen();
+    this.stopScreenShare();
     this.users.set([]);
     this.chatMessages.set([]);
     this.remoteWebcamStream.set(null);
@@ -83,149 +178,71 @@ export class SignalingService {
     this.isScreenSharing.set(false);
   }
 
-  private setupSocketListeners() {
-    // 1. Room Users List
-    this.socket.on('room-users', ({ users, userId }) => {
-      this.users.set(users);
-      const self = users.find((u: User) => u.socketId === userId);
-      if (self) {
-        this.currentUser.set(self);
+  // --- Data Channel Events ---
+  private setupDataListeners(conn: DataConnection) {
+    conn.on('data', (raw: unknown) => {
+      const data = raw as any;
+      switch (data.type) {
+        case 'chat':
+          this.chatMessages.update(msgs => [...msgs, data.message]);
+          break;
+        case 'reaction':
+          this.activeReaction.set(data.reactionData);
+          break;
+        case 'sync':
+          this.playbackState.set(data.state);
+          break;
+        case 'users':
+          this.users.set(data.users);
+          break;
+        case 'screen-start':
+          this.remoteStreamType.set(data.streamType);
+          if (data.fileName) {
+            this.remoteVideoFileName.set(data.fileName);
+          }
+          break;
+        case 'screen-stop':
+          this.remoteScreenStream.set(null);
+          this.remoteStreamType.set('none');
+          this.remoteVideoFileName.set('');
+          break;
       }
-      
-      // If we are guest, request initial state from host
-      if (self && !self.isHost) {
-        this.socket.emit('request-sync', { roomId: this.currentRoomId() });
-      }
-
-      // Automatically initiate webcam peer connection if there is another user
-      const otherUser = users.find((u: User) => u.socketId !== userId);
-      if (otherUser) {
-        this.initiateWebcamCall(otherUser.socketId);
-      }
-    });
-
-    // 2. User Joined
-    this.socket.on('user-joined', (user: User) => {
-      this.users.update(prev => [...prev, user]);
-      // Host initiates connection to new guest
-      if (this.currentUser()?.isHost) {
-        this.initiateWebcamCall(user.socketId);
-        // Late-joiner fix: If a screen share is active, also connect the screen share stream
-        if (this.isScreenSharing()) {
-          this.initiateScreenCall(user.socketId);
-        }
-      }
-    });
-
-    // 3. User Left
-    this.socket.on('user-left', ({ socketId }) => {
-      this.users.update(prev => prev.filter(u => u.socketId !== socketId));
-      if (this.remoteWebcamStream() && this.pcWebcam) {
-        this.closeWebcamPeer();
-        this.remoteWebcamStream.set(null);
-      }
-      if (this.remoteScreenStream() && this.pcScreen) {
-        this.closeScreenPeer();
-        this.remoteScreenStream.set(null);
-      }
-    });
-
-    // 4. Host Changed
-    this.socket.on('host-changed', ({ newHostId }) => {
-      this.users.update(prev => prev.map(u => ({
-        ...u,
-        isHost: u.socketId === newHostId
-      })));
-      if (this.currentUser()?.socketId === newHostId) {
-        this.currentUser.update(prev => prev ? { ...prev, isHost: true } : null);
-      }
-    });
-
-    // 5. Signaling Data Forwarder
-    this.socket.on('webrtc-signal', async (payload) => {
-      const { senderId, signalData } = payload;
-      if (signalData.type === 'webcam-offer') {
-        await this.handleWebcamOffer(senderId, signalData.sdp);
-      } else if (signalData.type === 'webcam-answer') {
-        await this.handleWebcamAnswer(signalData.sdp);
-      } else if (signalData.type === 'webcam-candidate') {
-        await this.handleWebcamCandidate(signalData.candidate);
-      } else {
-        switch (signalData.type) {
-          case 'screen-offer':
-            this.handleScreenOffer(payload.senderId, payload.signalData.sdp, payload.signalData.streamType);
-            break;
-          case 'screen-answer':
-            this.handleScreenAnswer(payload.signalData.sdp);
-            break;
-          case 'screen-candidate':
-            this.handleScreenCandidate(payload.signalData.candidate);
-            break;
-          case 'screen-ended':
-            this.remoteScreenStream.set(null);
-            this.remoteStreamType.set('none');
-            this.closeScreenPeer();
-            break;
-        }
-      }
-    });
-
-    // 6. Playback synchronization
-    this.socket.on('playback-sync', ({ action, time, speed }) => {
-      this.playbackState.set({ playing: action === 'play', time, speed });
-    });
-
-    // 7. Sync State Requests
-    this.socket.on('request-current-state', ({ requesterId }) => {
-      // Host sends current state to guest
-      const videoElement = document.getElementById('watch-player') as HTMLVideoElement;
-      this.socket.emit('send-current-state', {
-        targetId: requesterId,
-        time: videoElement ? videoElement.currentTime : 0,
-        playing: videoElement ? !videoElement.paused : false,
-        speed: videoElement ? videoElement.playbackRate : 1,
-        videoUrl: '' // URL of local file cannot be transferred, but playback controls can
-      });
-    });
-
-    this.socket.on('current-state', ({ time, playing, speed }) => {
-      this.playbackState.set({ playing, time, speed });
-    });
-
-    // 8. Chat Message
-    this.socket.on('chat-message', (msg: ChatMessage) => {
-      this.chatMessages.update(prev => [...prev, msg]);
-    });
-
-    // 9. Reactions
-    this.socket.on('reaction', ({ username, reaction }) => {
-      this.activeReaction.set({ username, reaction });
-      // Reset reaction after 3 seconds
-      setTimeout(() => {
-        this.activeReaction.set(null);
-      }, 3000);
     });
   }
 
-  // --- WEBCAM PEER CONNECTION ---
+  private broadcast(type: string, payload: any) {
+    if (this.dataConn && this.dataConn.open) {
+      this.dataConn.send({ type, ...payload });
+    }
+  }
+
+  // --- Media Flow Logic ---
+
   public async startLocalWebcam() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      console.error('getUserMedia is not supported in this browser/context.');
+      return null;
+    }
+
+    // Stop any stale stream before requesting a fresh one
+    this.stopLocalWebcam();
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 300, height: 300, facingMode: 'user' },
-        audio: true
-      });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+
       this.localWebcamStream.set(stream);
-      return stream;
-    } catch (err) {
-      console.error('Error accessing camera/microphone:', err);
-      // Fallback to audio only
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        this.localWebcamStream.set(stream);
-        return stream;
-      } catch (err2) {
-        console.error('Error accessing microphone:', err2);
+      
+      // If we have a connected peer, initiate a webcam call to send our video!
+      const targetId = this.currentUser()?.isHost ? this.guestId : this.currentRoomId();
+      if (this.peer && this.dataConn?.open && targetId) {
+        const call = this.peer.call(targetId, stream, { metadata: { type: 'webcam' } });
+        call.on('stream', (remoteStream) => {
+          this.remoteWebcamStream.set(remoteStream);
+        });
       }
+      return stream;
+    } catch (error) {
+      console.error('Error accessing media devices.', error);
       return null;
     }
   }
@@ -241,10 +258,10 @@ export class SignalingService {
   public toggleMute() {
     const stream = this.localWebcamStream();
     if (stream) {
-      const audioTrack = stream.getAudioTracks()[0];
-      if (audioTrack) {
-        audioTrack.enabled = !audioTrack.enabled;
-        this.isMuted.set(!audioTrack.enabled);
+      const audioTracks = stream.getAudioTracks();
+      if (audioTracks.length > 0) {
+        audioTracks[0].enabled = !audioTracks[0].enabled;
+        this.isMuted.set(!audioTracks[0].enabled);
       }
     }
   }
@@ -252,254 +269,134 @@ export class SignalingService {
   public toggleCamera() {
     const stream = this.localWebcamStream();
     if (stream) {
-      const videoTrack = stream.getVideoTracks()[0];
-      if (videoTrack) {
-        videoTrack.enabled = !videoTrack.enabled;
-        this.isCameraOff.set(!videoTrack.enabled);
+      const videoTracks = stream.getVideoTracks();
+      if (videoTracks.length > 0) {
+        videoTracks[0].enabled = !videoTracks[0].enabled;
+        this.isCameraOff.set(!videoTracks[0].enabled);
       }
     }
   }
 
-  private async initiateWebcamCall(targetId: string) {
-    if (!this.localWebcamStream()) {
-      await this.startLocalWebcam();
-    }
-    
-    this.pcWebcam = this.createWebcamPeerConnection(targetId);
-    
-    const stream = this.localWebcamStream();
-    if (stream) {
-      stream.getTracks().forEach(track => {
-        this.pcWebcam!.addTrack(track, stream);
-      });
-    }
+  // --- Screen/File Sharing (Host Only) ---
 
-    const offer = await this.pcWebcam.createOffer();
-    await this.pcWebcam.setLocalDescription(offer);
-    
-    this.socket.emit('webrtc-signal', {
-      targetId,
-      signalData: { type: 'webcam-offer', sdp: offer }
-    });
+  private initiateScreenCall(streamType: 'screen' | 'file', fileName?: string) {
+    const stream = this.localScreenStream();
+    if (!stream || !this.guestId || !this.peer) return;
+
+    this.broadcast('screen-start', { streamType, fileName });
+    this.peer.call(this.guestId, stream, { metadata: { type: 'screen', streamType } });
   }
 
-  private createWebcamPeerConnection(targetId: string): RTCPeerConnection {
-    const pc = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-    });
-
-    pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        this.socket.emit('webrtc-signal', {
-          targetId,
-          signalData: { type: 'webcam-candidate', candidate: event.candidate }
-        });
-      }
-    };
-
-    pc.ontrack = (event) => {
-      console.log('Received remote webcam track:', event.streams[0]);
-      this.remoteWebcamStream.set(event.streams[0]);
-    };
-
-    return pc;
-  }
-
-  private async handleWebcamOffer(senderId: string, sdp: RTCSessionDescriptionInit) {
-    if (!this.localWebcamStream()) {
-      await this.startLocalWebcam();
-    }
-    
-    this.pcWebcam = this.createWebcamPeerConnection(senderId);
-    
-    const stream = this.localWebcamStream();
-    if (stream) {
-      stream.getTracks().forEach(track => {
-        this.pcWebcam!.addTrack(track, stream);
-      });
-    }
-
-    await this.pcWebcam.setRemoteDescription(new RTCSessionDescription(sdp));
-    const answer = await this.pcWebcam.createAnswer();
-    await this.pcWebcam.setLocalDescription(answer);
-
-    this.socket.emit('webrtc-signal', {
-      targetId: senderId,
-      signalData: { type: 'webcam-answer', sdp: answer }
-    });
-  }
-
-  private async handleWebcamAnswer(sdp: RTCSessionDescriptionInit) {
-    if (this.pcWebcam) {
-      await this.pcWebcam.setRemoteDescription(new RTCSessionDescription(sdp));
-    }
-  }
-
-  private async handleWebcamCandidate(candidate: RTCIceCandidateInit) {
-    if (this.pcWebcam) {
-      await this.pcWebcam.addIceCandidate(new RTCIceCandidate(candidate));
-    }
-  }
-
-  private closeWebcamPeer() {
-    if (this.pcWebcam) {
-      this.pcWebcam.close();
-      this.pcWebcam = null;
-    }
-  }
-
-  // --- SCREEN SHARE PEER CONNECTION (MOVIE STREAM) ---
   public async startScreenShare() {
     try {
-      // Capture screen with audio
       const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { displaySurface: 'browser' },
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false
-        }
+        video: {
+          frameRate: { ideal: 24, max: 30 },
+          width: { ideal: 1280, max: 1920 },
+          height: { ideal: 720, max: 1080 }
+        },
+        audio: true
       });
+
+      // Hint browser encoder for motion-heavy content (videos, scrolling, screen motion)
+      const videoTrack = stream.getVideoTracks()[0];
+      if (videoTrack) {
+        videoTrack.contentHint = 'motion';
+        try {
+          await videoTrack.applyConstraints({
+            frameRate: { ideal: 24, max: 30 },
+            width: { ideal: 1280, max: 1920 },
+            height: { ideal: 720, max: 1080 }
+          });
+        } catch (constraintError) {
+          console.warn('Could not apply additional screen-share constraints:', constraintError);
+        }
+      }
 
       this.localScreenStream.set(stream);
       this.isScreenSharing.set(true);
-
-      // Notify guest by initiating screen connection
-      const guest = this.users().find(u => u.socketId !== this.currentUser()?.socketId);
-      if (guest) {
-        this.initiateScreenCall(guest.socketId);
-      }
-
-      // Listen for stream stop (when host clicks 'Stop Sharing' in browser popup)
+      this.hostScreenStreamType.set('screen');
+      
       stream.getVideoTracks()[0].onended = () => {
-        this.stopLocalScreen();
+        this.stopScreenShare();
       };
 
+      this.initiateScreenCall('screen');
       return stream;
     } catch (err) {
-      console.error('Error starting screen share:', err);
+      console.error('Error sharing screen:', err);
       return null;
     }
   }
 
-  public stopLocalScreen() {
+  public setLocalFileStream(stream: MediaStream, fileName?: string) {
+    const videoTrack = stream.getVideoTracks()[0];
+    if (videoTrack) {
+      videoTrack.contentHint = 'motion';
+      videoTrack.applyConstraints({
+        frameRate: { ideal: 24, max: 30 },
+        width: { ideal: 1280, max: 1920 },
+        height: { ideal: 720, max: 1080 }
+      }).catch((constraintError) => {
+        console.warn('Could not apply file-stream constraints:', constraintError);
+      });
+    }
+
+    this.localScreenStream.set(stream);
+    this.isScreenSharing.set(true);
+    this.hostScreenStreamType.set('file');
+    if (fileName) {
+      this.hostScreenFileName.set(fileName);
+    }
+    this.initiateScreenCall('file', fileName);
+  }
+
+  public stopScreenShare() {
     const stream = this.localScreenStream();
     if (stream) {
       stream.getTracks().forEach(track => track.stop());
       this.localScreenStream.set(null);
-    }
-    this.isScreenSharing.set(false);
-    this.remoteStreamType.set('none');
-    this.closeScreenPeer();
-    
-    // Notify peer by closing signaling
-    const guest = this.users().find(u => u.socketId !== this.currentUser()?.socketId);
-    if (guest) {
-      this.socket.emit('webrtc-signal', {
-        targetId: guest.socketId,
-        signalData: { type: 'screen-ended' }
-      });
+      this.isScreenSharing.set(false);
+      this.hostScreenStreamType.set('none');
+      this.hostScreenFileName.set('');
+      this.broadcast('screen-stop', {});
     }
   }
 
-  public async initiateScreenCall(targetId: string, streamType: 'screen' | 'file' = 'screen') {
-    this.pcScreen = this.createScreenPeerConnection(targetId);
-    
-    const stream = this.localScreenStream();
-    if (stream) {
-      stream.getTracks().forEach(track => {
-        this.pcScreen!.addTrack(track, stream);
-      });
-    }
-
-    const offer = await this.pcScreen.createOffer();
-    await this.pcScreen.setLocalDescription(offer);
-    
-    this.socket.emit('webrtc-signal', {
-      targetId,
-      signalData: { type: 'screen-offer', sdp: offer, streamType }
-    });
-  }
-
-  private createScreenPeerConnection(targetId: string): RTCPeerConnection {
-    const pc = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-    });
-
-    pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        this.socket.emit('webrtc-signal', {
-          targetId,
-          signalData: { type: 'screen-candidate', candidate: event.candidate }
-        });
-      }
-    };
-
-    pc.ontrack = (event) => {
-      console.log('Received remote screen/movie track:', event.streams[0]);
-      this.remoteScreenStream.set(event.streams[0]);
-    };
-
-    return pc;
-  }
-
-  private async handleScreenOffer(senderId: string, sdp: RTCSessionDescriptionInit, streamType?: 'screen' | 'file') {
-    if (streamType) {
-      this.remoteStreamType.set(streamType);
-    }
-    this.pcScreen = this.createScreenPeerConnection(senderId);
-    await this.pcScreen.setRemoteDescription(new RTCSessionDescription(sdp));
-    const answer = await this.pcScreen.createAnswer();
-    await this.pcScreen.setLocalDescription(answer);
-
-    this.socket.emit('webrtc-signal', {
-      targetId: senderId,
-      signalData: { type: 'screen-answer', sdp: answer }
-    });
-  }
-
-  private async handleScreenAnswer(sdp: RTCSessionDescriptionInit) {
-    if (this.pcScreen) {
-      await this.pcScreen.setRemoteDescription(new RTCSessionDescription(sdp));
-    }
-  }
-
-  private async handleScreenCandidate(candidate: RTCIceCandidateInit) {
-    if (this.pcScreen) {
-      await this.pcScreen.addIceCandidate(new RTCIceCandidate(candidate));
-    }
-  }
-
-  private closeScreenPeer() {
-    if (this.pcScreen) {
-      this.pcScreen.close();
-      this.pcScreen = null;
-    }
-  }
-
-  // --- ACTIONS (SYNC, CHAT, REACTIONS) ---
-  public sendPlaybackSync(action: 'play' | 'pause' | 'seek', time: number, speed: number = 1) {
-    this.socket.emit('playback-sync', {
-      roomId: this.currentRoomId(),
-      action,
-      time,
-      speed
-    });
-  }
-
+  // --- Application Actions ---
+  
   public sendChatMessage(text: string) {
-    if (text.trim()) {
-      this.socket.emit('chat-message', {
-        roomId: this.currentRoomId(),
-        text
-      });
-    }
+    const user = this.currentUser();
+    if (!user) return;
+    
+    const message: ChatMessage = {
+      id: Math.random().toString(36).substr(2, 9),
+      sender: user.username,
+      senderId: user.id,
+      text,
+      timestamp: new Date().toISOString()
+    };
+    
+    this.chatMessages.update(msgs => [...msgs, message]);
+    this.broadcast('chat', { message });
   }
 
   public sendReaction(reaction: string) {
-    this.socket.emit('send-reaction', {
-      roomId: this.currentRoomId(),
-      reaction
-    });
+    const user = this.currentUser();
+    if (!user) return;
+    
+    const reactionData = { username: user.username, reaction };
+    this.activeReaction.set(reactionData);
+    this.broadcast('reaction', { reactionData });
+    
+    setTimeout(() => {
+      this.activeReaction.set(null);
+    }, 2000);
+  }
+
+  public updatePlaybackState(playing: boolean, time: number, speed: number) {
+    const state = { playing, time, speed };
+    this.playbackState.set(state);
+    this.broadcast('sync', { state });
   }
 }

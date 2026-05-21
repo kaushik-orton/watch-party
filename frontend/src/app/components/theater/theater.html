@@ -2,22 +2,8 @@
   
   <!-- Header Bar -->
   <header class="header">
-    <div class="header-left">
-      <div class="room-pill">
-        <span class="pulse-dot"></span>
-        <span class="room-id">{{ signalingService.currentRoomId() }}</span>
-      </div>
-      @if (signalingService.currentUser()?.isHost) {
-        <span class="role-badge host">Host</span>
-      } @else {
-        <span class="role-badge guest">Guest</span>
-      }
-    </div>
-    
-    <div class="header-right">
-      <button class="icon-btn" (click)="copyRoomLink()" title="Share Link">🔗</button>
-      <button class="icon-btn danger" (click)="exitRoom()" title="Exit">❌</button>
-    </div>
+    <div class="header-left"></div>
+    <div class="header-right"></div>
   </header>
 
   <!-- Main Theater Arena -->
@@ -67,8 +53,17 @@
                  (seeked)="handleSeek()">
           </video>
           <div class="file-info glass">
-            <span>Playing: {{ selectedVideoFileName() }}</span>
-            <button class="btn-icon" (click)="stopScreenSharing()" title="Stop Sharing">❌</button>
+            <span class="file-name-span" title="{{ selectedVideoFileName() }}">Playing: {{ selectedVideoFileName() }}</span>
+            <div class="file-controls-group">
+              <button class="btn-sub" (click)="searchSubtitlesOnline()" title="Search Subtitles Online">
+                🔍 Search Subs
+              </button>
+              <label class="btn-sub" title="Add Subtitles (.vtt, .srt)">
+                💬 Load Subs
+                <input type="file" accept=".srt,.vtt" (change)="onSubtitleSelected($event)" style="display: none;" />
+              </label>
+              <button class="btn-icon" (click)="stopScreenSharing()" title="Stop Sharing">❌</button>
+            </div>
           </div>
         </div>
       }
@@ -77,17 +72,24 @@
       @if (signalingService.currentUser()?.isHost && signalingService.isScreenSharing() && !hasLocalFileLoaded()) {
         <div class="video-container screen-preview glass">
           <video #localScreenVideo class="video-player" autoplay playsinline muted [srcObject]="signalingService.localScreenStream()" (loadedmetadata)="onVideoLoaded($event)"></video>
-          <div class="screen-sharing-overlay">
-            <span class="pulse-icon">📡</span>
-            <h2>Streaming Your Screen / VLC Window</h2>
-            <p>Srinija is viewing this stream. Open VLC or your browser tab and enjoy!</p>
-            <p class="pip-tip">
-              💡 <strong>How to see Srinija:</strong> Hover over her webcam bubble (labeled "Partner") and click the <strong>🖼️ (Picture-in-Picture)</strong> button. This will float her face in an <strong>always-on-top window</strong> on top of VLC!
-              <br/><br/>
-              <em>Tip: Share only the VLC window (not your entire screen) to prevent her from seeing a mirror of her own video!</em>
-            </p>
-            <button class="btn btn-danger" (click)="stopScreenSharing()">Stop Screen Share</button>
-          </div>
+          @if (showScreenShareHelp()) {
+            <div class="screen-sharing-overlay">
+              <button class="close-chat" (click)="closeScreenShareHelp()" title="Close Tips">&#10006;</button>
+              <span class="pulse-icon">&#128225;</span>
+              <h2>Streaming Your Screen / VLC Window</h2>
+              <p>Your partner is viewing this stream. Open VLC or your browser tab and enjoy!</p>
+              <p class="pip-tip">
+                &#128161; <strong>How to see your partner:</strong> Hover over their webcam bubble (labeled "Partner") and click the <strong>&#128444;&#65039; (Picture-in-Picture)</strong> button. This will float their face in an <strong>always-on-top window</strong> on top of VLC!
+                <br/><br/>
+                <em>Tip: Share only the VLC window (not your entire screen) to prevent them from seeing a mirror of their own video!</em>
+              </p>
+              <button class="btn btn-danger" (click)="stopScreenSharing()">Stop Screen Share</button>
+            </div>
+          } @else {
+            <button class="reactions-trigger glass" style="position:absolute;top:5.5rem;left:2.5rem;z-index:111;" (click)="openScreenShareHelp()" title="Show Tips">
+              <span [innerHTML]="'&#128161;'"></span>
+            </button>
+          }
         </div>
       }
 
@@ -97,7 +99,7 @@
           <div class="waiting-prompt">
             <span class="wait-icon">⏳</span>
             <h2>Waiting for host to start the show</h2>
-            <p>Sit back and relax. Once Kaushik starts screen sharing or opens a movie, it will load here.</p>
+            <p>Sit back and relax. Once the host starts screen sharing or opens a movie, it will load here.</p>
           </div>
         </div>
       }
@@ -114,12 +116,27 @@
                  [srcObject]="signalingService.remoteScreenStream()">
           </video>
           
-          @if (signalingService.remoteStreamType() === 'file') {
+          @if (signalingService.remoteVideoFileName() || signalingService.remoteStreamType() === 'file') {
             <div class="guest-controls-overlay glass">
-              <span>Viewing {{ getPartnerName() }}'s Stream</span>
-              <button class="btn-icon guest-play-btn" (click)="guestTogglePlay()">
-                {{ signalingService.playbackState().playing ? '⏸️ Pause' : '▶️ Play' }}
-              </button>
+              <span class="file-name-span" title="{{ signalingService.remoteVideoFileName() || 'Screen Share' }}">
+                Viewing: {{ signalingService.remoteVideoFileName() || 'Screen Share' }}
+              </span>
+              <div class="file-controls-group">
+                @if (signalingService.remoteVideoFileName()) {
+                  <button class="btn-sub" (click)="searchSubtitlesOnline()" title="Search Subtitles Online">
+                    🔍 Search Subs
+                  </button>
+                  <label class="btn-sub" title="Add Subtitles (.vtt, .srt)">
+                    💬 Load Subs
+                    <input type="file" accept=".srt,.vtt" (change)="onSubtitleSelected($event)" style="display: none;" />
+                  </label>
+                }
+                @if (signalingService.remoteStreamType() === 'file') {
+                  <button class="btn-icon guest-play-btn" (click)="guestTogglePlay()" style="margin: 0;">
+                    {{ signalingService.playbackState().playing ? '⏸️ Pause' : '▶️ Play' }}
+                  </button>
+                }
+              </div>
             </div>
           }
         </div>
@@ -129,16 +146,16 @@
       @if (hasLocalFileLoaded() || signalingService.isScreenSharing() || signalingService.remoteScreenStream()) {
         <div class="reactions-system" [class.reactions-open]="isReactionsOpen()">
           <button class="reactions-trigger glass" (click)="isReactionsOpen.set(!isReactionsOpen())" [title]="isReactionsOpen() ? 'Hide Reactions' : 'Show Reactions'">
-            {{ isReactionsOpen() ? '😊 ▾' : '😊' }}
+            <span [innerHTML]="isReactionsOpen() ? '&#128522; &#9662;' : '&#128522;'"></span>
           </button>
           @if (isReactionsOpen()) {
             <div class="reactions-tray glass">
-              <button (click)="sendReaction('❤️')" class="reaction-btn">❤️</button>
-              <button (click)="sendReaction('😂')" class="reaction-btn">😂</button>
-              <button (click)="sendReaction('😮')" class="reaction-btn">😮</button>
-              <button (click)="sendReaction('😢')" class="reaction-btn">😢</button>
-              <button (click)="sendReaction('👏')" class="reaction-btn">👏</button>
-              <button (click)="sendReaction('🔥')" class="reaction-btn">🔥</button>
+              <button (click)="sendReaction('❤️')" class="reaction-btn"><span [innerHTML]="'&#10084;&#65039;'"></span></button>
+              <button (click)="sendReaction('😂')" class="reaction-btn"><span [innerHTML]="'&#128514;'"></span></button>
+              <button (click)="sendReaction('😮')" class="reaction-btn"><span [innerHTML]="'&#128558;'"></span></button>
+              <button (click)="sendReaction('😢')" class="reaction-btn"><span [innerHTML]="'&#128546;'"></span></button>
+              <button (click)="sendReaction('👏')" class="reaction-btn"><span [innerHTML]="'&#128079;'"></span></button>
+              <button (click)="sendReaction('🔥')" class="reaction-btn"><span [innerHTML]="'&#128293;'"></span></button>
             </div>
           }
         </div>
@@ -179,108 +196,128 @@
   }
 
   <!-- Draggable facecam bubble: Remote User -->
-  @if (signalingService.remoteWebcamStream()) {
-    <div class="video-bubble glass pulsing-border-rose" 
+  @if (signalingService.users().length > 1) {
+    <div class="video-bubble glass pulsing-border-rose"
+         [class.collapsed]="isRemoteBubbleCollapsed()"
          [class.pip-active]="isRemoteInPiP()"
-         [style.left.px]="remoteBubblePos().x" 
+         [style.left.px]="remoteBubblePos().x"
          [style.top.px]="remoteBubblePos().y"
          (mousedown)="onDragStart($event, 'remote')"
          (touchstart)="onDragStart($event, 'remote')">
-      @if (isRemoteVideoTrackActive()) {
-        <video #remoteWebcamVideo [srcObject]="signalingService.remoteWebcamStream()" autoplay playsinline (loadedmetadata)="onVideoLoaded($event)" class="bubble-video"></video>
+      @if (isRemoteBubbleCollapsed()) {
+        <div class="bubble-collapsed-content" (click)="$event.stopPropagation(); toggleRemoteBubbleCollapse()">
+          <span class="bubble-collapsed-icon">P</span>
+          <span class="bubble-collapsed-name">{{ getPartnerName() }}</span>
+        </div>
       } @else {
-        <div class="bubble-avatar-placeholder">
-          <span class="avatar-icon">👤</span>
+        @if (isRemoteVideoTrackActive()) {
+          <video #remoteWebcamVideo [srcObject]="signalingService.remoteWebcamStream()" autoplay playsinline (loadedmetadata)="onVideoLoaded($event)" class="bubble-video"></video>
+        } @else {
+          <div class="bubble-avatar-placeholder">
+            <span class="avatar-icon">User</span>
+          </div>
+        }
+        @if (isRemoteInPiP()) {
+          <div class="pip-overlay">
+            <span class="pip-overlay-icon">PiP</span>
+            <span class="pip-overlay-text">PiP Active</span>
+          </div>
+        }
+        <div class="bubble-info">
+          <span class="bubble-name">{{ getPartnerName() }}</span>
+          <div class="bubble-controls">
+            <button class="bubble-btn" (click)="$event.stopPropagation(); toggleRemoteBubbleCollapse()" title="Collapse Bubble">-</button>
+            <button class="bubble-btn" (click)="$event.stopPropagation(); toggleRemotePiP()" [title]="isRemoteInPiP() ? 'Exit PiP' : 'Pop Out (PiP)'">
+              {{ isRemoteInPiP() ? 'Back' : 'PiP' }}
+            </button>
+            <button class="bubble-btn" (click)="$event.stopPropagation(); takeScreenshot('remote')" title="Screenshot">Shot</button>
+            <button class="bubble-btn"
+                    [class.recording]="isRecording() === 'remote'"
+                    (click)="$event.stopPropagation(); toggleRecording('remote')"
+                    [title]="isRecording() === 'remote' ? 'Stop Recording' : 'Record 30s'">
+              {{ isRecording() === 'remote' ? 'Stop' : 'Rec' }}
+            </button>
+          </div>
         </div>
       }
-      @if (isRemoteInPiP()) {
-        <div class="pip-overlay">
-          <span class="pip-overlay-icon">🖼️</span>
-          <span class="pip-overlay-text">PiP Active</span>
+    </div>
+  }
+
+  <!-- Draggable Partner Waiting Box (shown when solo) -->
+  @if (signalingService.users().length === 1) {
+    <div class="partner-waiting-bubble glass pulsing-border-amber"
+         [class.collapsed]="isWaitingBubbleCollapsed()"
+         [style.left.px]="remoteBubblePos().x"
+         [style.top.px]="remoteBubblePos().y"
+         (mousedown)="onDragStart($event, 'remote')"
+         (touchstart)="onDragStart($event, 'remote')">
+      @if (isWaitingBubbleCollapsed()) {
+        <div class="waiting-collapsed-content" (click)="$event.stopPropagation(); isWaitingBubbleCollapsed.set(false)" title="Click to Expand">
+          <span class="waiting-icon-mini">Wait</span>
+          <span class="waiting-badge-glow"></span>
+        </div>
+      } @else {
+        <div class="waiting-expanded-content">
+          <div class="waiting-header">
+            <span class="pulse-dot-amber"></span>
+            <span class="waiting-title">Waiting for Partner</span>
+            <button class="bubble-collapse-btn" (click)="$event.stopPropagation(); isWaitingBubbleCollapsed.set(true)" title="Collapse">-</button>
+          </div>
+          <p class="waiting-text">Share the room link to watch together!</p>
+          <button class="waiting-copy-btn" (click)="$event.stopPropagation(); copyRoomLink()">Copy Link</button>
         </div>
       }
-      <div class="bubble-info">
-        <span class="bubble-name">{{ getPartnerName() }}</span>
-        <div class="bubble-controls">
-          <button class="bubble-btn" (click)="$event.stopPropagation(); toggleRemotePiP()" [title]="isRemoteInPiP() ? 'Exit PiP' : 'Pop Out (PiP)'">
-            {{ isRemoteInPiP() ? '↩️' : '🖼️' }}
-          </button>
-          <button class="bubble-btn" (click)="$event.stopPropagation(); takeScreenshot('remote')" title="Screenshot">
-            📸
-          </button>
-          <button class="bubble-btn" 
-                  [class.recording]="isRecording() === 'remote'"
-                  (click)="$event.stopPropagation(); toggleRecording('remote')" 
-                  [title]="isRecording() === 'remote' ? 'Stop Recording' : 'Record 30s'">
-            {{ isRecording() === 'remote' ? '⏹️' : '⏺️' }}
-          </button>
-        </div>
-      </div>
     </div>
   }
 
   <!-- Always-Visible Media Control Bar -->
-  <div class="media-control-bar glass" [class.minimized]="isControlsMinimized()">
-    <div class="control-bar-left">
-      <!-- Webcam Status -->
-      @if (webcamError()) {
-        <span class="webcam-status error" title="Camera failed to start">⚠️ Camera Error</span>
-      } @else if (!signalingService.localWebcamStream()) {
-        <span class="webcam-status loading">📷 Starting Camera...</span>
-      } @else {
-        <span class="webcam-status active">📷 Camera Active</span>
-      }
-    </div>
+  <div class="media-control-bar glass"
+       [style.left.px]="controlsPos().x"
+       [style.top.px]="controlsPos().y"
+       (mousedown)="onDragStart($event, 'controls')"
+       (touchstart)="onDragStart($event, 'controls')">
+      <div class="control-bar-left">
+        @if (webcamError()) {
+          <span class="webcam-status error" title="Camera failed to start">Camera Error</span>
+        } @else if (!signalingService.localWebcamStream()) {
+          <span class="webcam-status loading">Starting Camera...</span>
+        } @else {
+          <span class="webcam-status active">Camera Active</span>
+        }
+      </div>
 
-    <div class="control-bar-center">
-      <!-- Mic Toggle -->
-      <button class="control-btn" 
-              (click)="toggleMute()" 
-              [class.control-off]="signalingService.isMuted()"
-              [title]="signalingService.isMuted() ? 'Unmute Microphone' : 'Mute Microphone'">
-        {{ signalingService.isMuted() ? '🔇' : '🎙️' }}
-        <span class="control-label">{{ signalingService.isMuted() ? 'Unmute' : 'Mute' }}</span>
-      </button>
+      <div class="control-bar-center">
+        @if (webcamError()) {
+          <button class="control-btn" (click)="retryWebcam()" title="Enable Camera & Mic"><span [innerHTML]="'&#128260;'"></span><span class="control-label">Retry</span></button>
+        } @else if (!signalingService.localWebcamStream()) {
+          <button class="control-btn" (click)="retryWebcam()" title="Enable Camera & Mic"><span [innerHTML]="'&#128247;'"></span><span class="control-label">Enable Cam</span></button>
+        } @else {
+          <button class="control-btn" (click)="toggleMute()" [class.control-off]="signalingService.isMuted()" [title]="signalingService.isMuted() ? 'Unmute Microphone' : 'Mute Microphone'">
+            <span [innerHTML]="signalingService.isMuted() ? '&#128263;' : '&#127897;&#65039;'"></span>
+            <span class="control-label">{{ signalingService.isMuted() ? 'Unmute' : 'Mute' }}</span>
+          </button>
 
-      <!-- Camera Toggle -->
-      <button class="control-btn" 
-              (click)="toggleCamera()" 
-              [class.control-off]="signalingService.isCameraOff()"
-              [title]="signalingService.isCameraOff() ? 'Turn Camera On' : 'Turn Camera Off'">
-        {{ signalingService.isCameraOff() ? '🚫' : '📷' }}
-        <span class="control-label">{{ signalingService.isCameraOff() ? 'Show Cam' : 'Hide Cam' }}</span>
-      </button>
+          <button class="control-btn" (click)="toggleCamera()" [class.control-off]="signalingService.isCameraOff()" [title]="signalingService.isCameraOff() ? 'Turn Camera On' : 'Turn Camera Off'">
+            <span [innerHTML]="signalingService.isCameraOff() ? '&#128683;' : '&#128247;'"></span>
+            <span class="control-label">{{ signalingService.isCameraOff() ? 'Show Cam' : 'Hide Cam' }}</span>
+          </button>
+        }
 
-      <!-- Restart webcam if it failed -->
-      @if (webcamError()) {
-        <button class="control-btn" (click)="retryWebcam()" title="Retry Camera">
-          🔄
-          <span class="control-label">Retry Cam</span>
-        </button>
-      }
+        @if (signalingService.remoteWebcamStream()) {
+          <button class="control-btn" (click)="toggleRemotePiP()" title="Pop partner video on top (PiP)"><span [innerHTML]="'&#128444;&#65039;'"></span><span class="control-label">PiP Partner</span></button>
+        }
+      </div>
 
-      <!-- PiP for partner (only if partner connected) -->
-      @if (signalingService.remoteWebcamStream()) {
-        <button class="control-btn" (click)="toggleRemotePiP()" title="Pop partner video on top (PiP)">
-          🖼️
-          <span class="control-label">PiP Partner</span>
-        </button>
-      }
-    </div>
-
-    <div class="control-bar-right">
-      <!-- Connection status -->
-      @if (signalingService.users().length > 1) {
-        <span class="connection-status connected">🟢 Partner Connected</span>
-      } @else {
-        <span class="connection-status solo">🟡 Waiting for partner...</span>
-      }
-      <button class="minimize-btn" (click)="isControlsMinimized.set(!isControlsMinimized())" [title]="isControlsMinimized() ? 'Expand Controls' : 'Minimize Controls'">
-        {{ isControlsMinimized() ? '⬆️' : '⬇️' }}
-      </button>
-    </div>
+      <div class="control-bar-right">
+        @if (signalingService.users().length > 1) {
+          <span class="connection-status connected">Partner Connected</span>
+        } @else {
+          <span class="connection-status solo">Waiting for partner...</span>
+        }
+      </div>
   </div>
 
+  <!-- Collapsible Floating Chat Box -->
   <!-- Collapsible Floating Chat Box -->
   <div class="chat-system" [class.chat-open]="isChatOpen()">
     <button class="chat-bubble-trigger glass glow-primary" (click)="isChatOpen.set(!isChatOpen())">
@@ -299,7 +336,7 @@
 
         <div #chatMessagesContainer class="chat-messages">
           @for (msg of signalingService.chatMessages(); track msg.id) {
-            <div class="message-wrapper" [class.self-msg]="msg.senderId === signalingService.currentUser()?.socketId">
+            <div class="message-wrapper" [class.self-msg]="msg.senderId === signalingService.currentUser()?.id">
               <div class="message-sender">{{ msg.sender }}</div>
               <div class="message-bubble">
                 <p>{{ msg.text }}</p>
@@ -328,7 +365,7 @@
   <!-- Floating reactions layer -->
   <div class="floating-reactions-container">
     @for (react of reactionsList(); track react.id) {
-      <div class="floating-reaction" [style.left.%]="react.left">
+      <div class="floating-reaction" [style]="react.style">
         {{ react.emoji }}
       </div>
     }
