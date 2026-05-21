@@ -23,6 +23,19 @@ export class SignalingService {
   private dataConn: DataConnection | null = null;
   private guestId: string | null = null; // Used by host to track guest peer ID
   private restoreMicAfterShare = false;
+  private readonly rtcConfig = {
+    config: {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        // Public relay for hobby/demo usage. Replace with your own TURN for production reliability.
+        { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+        { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+        { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
+      ]
+    }
+  };
   
   // App states
   public currentRoomId = signal<string>('');
@@ -63,7 +76,7 @@ export class SignalingService {
     return new Promise((resolve, reject) => {
       if (isHost) {
         // Host claims the specific room ID
-        this.peer = new Peer(roomId);
+        this.peer = new Peer(roomId, this.rtcConfig);
         this.peer.on('open', (id) => {
           this.currentUser.set({ id, username, isHost: true });
           this.users.set([{ id, username, isHost: true }]);
@@ -117,7 +130,7 @@ export class SignalingService {
       
     } else {
       // Guest creates a random peer and connects to the host
-      this.peer = new Peer();
+      this.peer = new Peer(this.rtcConfig);
       this.peer.on('open', (id) => {
         this.currentUser.set({ id, username, isHost: false });
         resolve();
