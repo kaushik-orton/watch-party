@@ -1,0 +1,442 @@
+.lobby-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  padding: 2rem;
+  box-sizing: border-box;
+  position: relative;
+  overflow: hidden;
+  background-color: var(--bg-light);
+}
+
+.lobby-card {
+  width: 100%;
+  max-width: 480px;
+  padding: 2.5rem;
+  box-sizing: border-box;
+  animation: slideIn 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.2s cubic-bezier(0.25, 0.8, 0.25, 1), box-shadow 0.3s ease;
+  transform-style: preserve-3d;
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-radius: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  box-shadow: 
+    0 25px 50px -12px rgba(0, 0, 0, 0.05),
+    0 0 40px rgba(129, 140, 248, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  z-index: 5;
+}
+
+@keyframes slideIn {
+  0% {
+    opacity: 0;
+    transform: translateY(40px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.brand {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.logo-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.85rem;
+  margin-bottom: 0.5rem;
+}
+
+.logo-icon {
+  font-size: 2.75rem;
+  display: inline-block;
+  animation: popcorn-bounce 2s infinite ease-in-out;
+}
+
+@keyframes popcorn-bounce {
+  0%, 100% {
+    transform: translateY(0) scale(1) rotate(0);
+  }
+  50% {
+    transform: translateY(-8px) scale(1.1) rotate(5deg);
+  }
+}
+
+.brand h1 {
+  font-size: 2.5rem;
+  font-weight: 850;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin: 0;
+  letter-spacing: -0.03em;
+}
+
+.tagline {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  font-weight: 500;
+  margin: 0.4rem 0 0 0;
+}
+
+/* Forms styling */
+.lobby-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  margin-bottom: 2rem;
+}
+
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.input-group label {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input-icon {
+  position: absolute;
+  left: 1.25rem;
+  font-size: 1.1rem;
+  color: var(--text-muted);
+}
+
+.input-wrapper input {
+  width: 100%;
+  padding: 1rem 1.25rem;
+  padding-left: 3rem;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: 14px;
+  color: var(--text-primary);
+  font-size: 1rem;
+  font-weight: 500;
+  box-sizing: border-box;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.01);
+  transition: var(--transition-smooth);
+}
+
+.input-wrapper input:focus {
+  background: #fff;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px rgba(129, 140, 248, 0.2);
+}
+
+.submit-btn {
+  width: 100%;
+  padding: 1.05rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+  color: white;
+  box-shadow: 0 8px 25px rgba(129, 140, 248, 0.25);
+  transition: var(--transition-smooth);
+}
+
+.submit-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 30px rgba(129, 140, 248, 0.35);
+}
+
+.submit-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.submit-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Features list */
+.features-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  padding-top: 1.75rem;
+}
+
+.feature-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.feature-icon {
+  font-size: 1.35rem;
+  padding: 0.5rem;
+  background: rgba(129, 140, 248, 0.05);
+  border-radius: 10px;
+  border: 1px solid rgba(129, 140, 248, 0.08);
+  line-height: 1;
+}
+
+.feature-item h3 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 0.2rem 0;
+}
+
+.feature-item p {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  margin: 0;
+}
+
+/* --- MOVIE POSTERS STYLING (LEFT & RIGHT) --- */
+.movie-poster {
+  position: absolute;
+  width: 190px;
+  height: 270px;
+  perspective: 1000px;
+  z-index: 2;
+  transition: transform 0.4s cubic-bezier(0.165, 0.84, 0.44, 1), z-index 0s;
+}
+
+.poster-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  text-align: center;
+  transition: transform 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  transform-style: preserve-3d;
+  cursor: pointer;
+}
+
+/* Hover rotation triggers 3D flip card */
+.movie-poster:hover .poster-inner {
+  transform: rotateY(180deg);
+}
+
+.movie-poster:hover {
+  transform: scale(1.08) translateY(-10px) !important;
+  z-index: 10;
+}
+
+.poster-front, .poster-back {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  border-radius: 20px;
+  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.07), 0 3px 10px rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  overflow: hidden;
+}
+
+.poster-front {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 1.25rem;
+  color: white;
+}
+
+.poster-overlay-glow {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: radial-gradient(circle at 50% 20%, rgba(255,255,255,0.2) 0%, transparent 85%);
+  pointer-events: none;
+}
+
+.movie-svg {
+  width: 85px;
+  height: 85px;
+  margin-bottom: 1.25rem;
+  filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.15));
+  transition: transform 0.4s ease;
+}
+
+.movie-poster:hover .movie-svg {
+  transform: scale(1.12) rotate(5deg);
+}
+
+.movie-name {
+  font-size: 1.25rem;
+  font-weight: 850;
+  margin: 0;
+  letter-spacing: -0.02em;
+  text-shadow: 0 2px 4px rgba(0,0,0,0.15);
+}
+
+.hover-tip {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.8;
+  margin-top: 1.25rem;
+  background: rgba(255, 255, 255, 0.2);
+  padding: 0.25rem 0.6rem;
+  border-radius: 20px;
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Individual Movie Themes */
+.inception .poster-front {
+  background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);
+  border-color: rgba(99, 102, 241, 0.25);
+}
+.spirited-away .poster-front {
+  background: linear-gradient(135deg, #ff6b6b 0%, #feb47b 100%);
+  border-color: rgba(254, 180, 123, 0.35);
+}
+.interstellar .poster-front {
+  background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+  border-color: rgba(99, 102, 241, 0.2);
+}
+.parasite .poster-front {
+  background: linear-gradient(135deg, #064e3b 0%, #059669 100%);
+  border-color: rgba(52, 211, 153, 0.25);
+}
+
+/* Poster Back (Details & Fun Fact) */
+.poster-back {
+  transform: rotateY(180deg);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: stretch;
+  padding: 1rem;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.95);
+  box-sizing: border-box;
+}
+
+.poster-back h3 {
+  font-size: 1.15rem;
+  font-weight: 850;
+  margin: 0 0 0.4rem 0;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+.movie-desc {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  line-height: 1.35;
+  margin: 0 0 0.6rem 0;
+}
+
+.fun-fact {
+  background: rgba(129, 140, 248, 0.08);
+  border: 1px solid rgba(129, 140, 248, 0.2);
+  border-radius: 12px;
+  padding: 0.5rem 0.6rem;
+  box-sizing: border-box;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.fun-fact strong {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--primary-hover);
+  display: block;
+  margin-bottom: 0.25rem;
+}
+
+.fun-fact p {
+  font-size: 0.68rem;
+  color: var(--text-primary);
+  line-height: 1.35;
+  margin: 0;
+}
+
+/* Floating Animations for Movie Posters */
+.left-poster.inception {
+  left: 7%;
+  top: 15%;
+  animation: float-inception 8s ease-in-out infinite;
+}
+@keyframes float-inception {
+  0%, 100% { transform: translateY(0) rotate(-8deg); }
+  50% { transform: translateY(-10px) rotate(-6deg); }
+}
+
+.left-poster.spirited-away {
+  left: 5%;
+  bottom: 15%;
+  animation: float-spirited 9s ease-in-out infinite;
+}
+@keyframes float-spirited {
+  0%, 100% { transform: translateY(0) rotate(6deg); }
+  50% { transform: translateY(-12px) rotate(8deg); }
+}
+
+.right-poster.interstellar {
+  right: 7%;
+  top: 18%;
+  animation: float-interstellar 10s ease-in-out infinite;
+}
+@keyframes float-interstellar {
+  0%, 100% { transform: translateY(0) rotate(8deg); }
+  50% { transform: translateY(-8px) rotate(6deg); }
+}
+
+.right-poster.parasite {
+  right: 5%;
+  bottom: 12%;
+  animation: float-parasite 8.5s ease-in-out infinite;
+}
+@keyframes float-parasite {
+  0%, 100% { transform: translateY(0) rotate(-6deg); }
+  50% { transform: translateY(-10px) rotate(-8deg); }
+}
+
+/* --- RESPONSIVE DESIGN --- */
+@media (max-width: 1200px) {
+  /* Scale down movie posters positions on tablet */
+  .left-poster.inception { left: 3%; top: 12%; }
+  .left-poster.spirited-away { left: 2%; bottom: 12%; }
+  .right-poster.interstellar { right: 3%; top: 15%; }
+  .right-poster.parasite { right: 2%; bottom: 10%; }
+}
+
+@media (max-width: 950px) {
+  /* Hide posters entirely to keep it clutter-free on smaller screens */
+  .movie-poster {
+    display: none;
+  }
+  
+  .lobby-container {
+    padding: 1.5rem;
+    overflow-y: auto;
+  }
+
+  .lobby-card {
+    max-width: 100%;
+    margin: 1.5rem 0;
+    padding: 2rem 1.5rem;
+    border-radius: 24px;
+  }
+}

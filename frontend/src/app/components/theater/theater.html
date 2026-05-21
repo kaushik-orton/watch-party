@@ -1,0 +1,337 @@
+<div class="theater-container">
+  
+  <!-- Header Bar -->
+  <header class="header">
+    <div class="header-left">
+      <div class="room-pill">
+        <span class="pulse-dot"></span>
+        <span class="room-id">{{ signalingService.currentRoomId() }}</span>
+      </div>
+      @if (signalingService.currentUser()?.isHost) {
+        <span class="role-badge host">Host</span>
+      } @else {
+        <span class="role-badge guest">Guest</span>
+      }
+    </div>
+    
+    <div class="header-right">
+      <button class="icon-btn" (click)="copyRoomLink()" title="Share Link">🔗</button>
+      <button class="icon-btn danger" (click)="exitRoom()" title="Exit">❌</button>
+    </div>
+  </header>
+
+  <!-- Main Theater Arena -->
+  <main class="theater-arena">
+    <div class="player-wrapper">
+      
+      <!-- Host: Drop zone if no media has been selected yet -->
+      @if (signalingService.currentUser()?.isHost && !signalingService.isScreenSharing() && !hasLocalFileLoaded()) {
+        <div class="drop-zone" 
+             (dragover)="onDragOver($event)" 
+             (drop)="onFileDropped($event)">
+          <div class="drop-prompt">
+            <span class="drop-icon">🎬</span>
+            <h2>Host a Watch Party</h2>
+            <p>Drag & drop a local video file anywhere to start streaming, or choose an option below:</p>
+            
+            <div class="action-cards">
+              <button class="action-card" (click)="startScreenSharing()">
+                <div class="card-icon">🖥️</div>
+                <div class="card-text">
+                  <h3>Share Screen</h3>
+                  <span>Stream VLC or a browser tab</span>
+                </div>
+              </button>
+              
+              <label class="action-card">
+                <div class="card-icon">📁</div>
+                <div class="card-text">
+                  <h3>Select File</h3>
+                  <span>Pick a local MP4/WebM file</span>
+                </div>
+                <input type="file" accept="video/*" class="file-input" (change)="onFileSelected($event)" />
+              </label>
+            </div>
+          </div>
+        </div>
+      }
+
+      <!-- Host: Playing Local Video File -->
+      @if (signalingService.currentUser()?.isHost && hasLocalFileLoaded()) {
+        <div class="video-container">
+          <video id="watch-player" 
+                 class="video-player"
+                 controls
+                 (play)="handlePlay()" 
+                 (pause)="handlePause()" 
+                 (seeked)="handleSeek()">
+          </video>
+          <div class="file-info glass">
+            <span>Playing: {{ selectedVideoFileName() }}</span>
+            <button class="btn-icon" (click)="stopScreenSharing()" title="Stop Sharing">❌</button>
+          </div>
+        </div>
+      }
+
+      <!-- Host: Active Screen Share (VLC / Browser Window) -->
+      @if (signalingService.currentUser()?.isHost && signalingService.isScreenSharing() && !hasLocalFileLoaded()) {
+        <div class="video-container screen-preview glass">
+          <video #localScreenVideo class="video-player" autoplay playsinline muted [srcObject]="signalingService.localScreenStream()" (loadedmetadata)="onVideoLoaded($event)"></video>
+          <div class="screen-sharing-overlay">
+            <span class="pulse-icon">📡</span>
+            <h2>Streaming Your Screen / VLC Window</h2>
+            <p>Srinija is viewing this stream. Open VLC or your browser tab and enjoy!</p>
+            <p class="pip-tip">
+              💡 <strong>How to see Srinija:</strong> Hover over her webcam bubble (labeled "Partner") and click the <strong>🖼️ (Picture-in-Picture)</strong> button. This will float her face in an <strong>always-on-top window</strong> on top of VLC!
+              <br/><br/>
+              <em>Tip: Share only the VLC window (not your entire screen) to prevent her from seeing a mirror of her own video!</em>
+            </p>
+            <button class="btn btn-danger" (click)="stopScreenSharing()">Stop Screen Share</button>
+          </div>
+        </div>
+      }
+
+      <!-- Guest: Waiting for Host to Share -->
+      @if (!signalingService.currentUser()?.isHost && !signalingService.remoteScreenStream()) {
+        <div class="waiting-screen glass">
+          <div class="waiting-prompt">
+            <span class="wait-icon">⏳</span>
+            <h2>Waiting for host to start the show</h2>
+            <p>Sit back and relax. Once Kaushik starts screen sharing or opens a movie, it will load here.</p>
+          </div>
+        </div>
+      }
+
+      <!-- Guest: Viewing Host's Stream -->
+      @if (!signalingService.currentUser()?.isHost && signalingService.remoteScreenStream()) {
+        <div class="video-container">
+          <!-- Guest Player is a stream. The playback controls are sent to the host over socket -->
+          <video #remoteVideo 
+                 id="watch-player" 
+                 class="video-player" 
+                 autoplay 
+                 playsinline
+                 [srcObject]="signalingService.remoteScreenStream()">
+          </video>
+          
+          @if (signalingService.remoteStreamType() === 'file') {
+            <div class="guest-controls-overlay glass">
+              <span>Viewing {{ getPartnerName() }}'s Stream</span>
+              <button class="btn-icon guest-play-btn" (click)="guestTogglePlay()">
+                {{ signalingService.playbackState().playing ? '⏸️ Pause' : '▶️ Play' }}
+              </button>
+            </div>
+          }
+        </div>
+      }
+
+      <!-- Collapsible Quick Reactions Panel -->
+      @if (hasLocalFileLoaded() || signalingService.isScreenSharing() || signalingService.remoteScreenStream()) {
+        <div class="reactions-system" [class.reactions-open]="isReactionsOpen()">
+          <button class="reactions-trigger glass" (click)="isReactionsOpen.set(!isReactionsOpen())" [title]="isReactionsOpen() ? 'Hide Reactions' : 'Show Reactions'">
+            {{ isReactionsOpen() ? '😊 ▾' : '😊' }}
+          </button>
+          @if (isReactionsOpen()) {
+            <div class="reactions-tray glass">
+              <button (click)="sendReaction('❤️')" class="reaction-btn">❤️</button>
+              <button (click)="sendReaction('😂')" class="reaction-btn">😂</button>
+              <button (click)="sendReaction('😮')" class="reaction-btn">😮</button>
+              <button (click)="sendReaction('😢')" class="reaction-btn">😢</button>
+              <button (click)="sendReaction('👏')" class="reaction-btn">👏</button>
+              <button (click)="sendReaction('🔥')" class="reaction-btn">🔥</button>
+            </div>
+          }
+        </div>
+      }
+
+    </div>
+  </main>
+
+  <!-- Draggable facecam bubble: Local User -->
+  @if (signalingService.localWebcamStream()) {
+    <div class="video-bubble glass pulsing-border-indigo" 
+         [style.left.px]="localBubblePos().x" 
+         [style.top.px]="localBubblePos().y"
+         (mousedown)="onDragStart($event, 'local')"
+         (touchstart)="onDragStart($event, 'local')">
+      @if (isLocalVideoTrackActive()) {
+        <video #localVideo autoplay playsinline muted [srcObject]="signalingService.localWebcamStream()" (loadedmetadata)="onVideoLoaded($event)" class="bubble-video"></video>
+      } @else {
+        <div class="bubble-avatar-placeholder">
+          <span class="avatar-icon">👤</span>
+        </div>
+      }
+      <div class="bubble-info">
+        <span class="bubble-name">You</span>
+        <div class="bubble-controls">
+          <button class="bubble-btn" (click)="$event.stopPropagation(); takeScreenshot('local')" title="Screenshot">
+            📸
+          </button>
+          <button class="bubble-btn" 
+                  [class.recording]="isRecording() === 'local'"
+                  (click)="$event.stopPropagation(); toggleRecording('local')" 
+                  [title]="isRecording() === 'local' ? 'Stop Recording' : 'Record 30s'">
+            {{ isRecording() === 'local' ? '⏹️' : '⏺️' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- Draggable facecam bubble: Remote User -->
+  @if (signalingService.remoteWebcamStream()) {
+    <div class="video-bubble glass pulsing-border-rose" 
+         [class.pip-active]="isRemoteInPiP()"
+         [style.left.px]="remoteBubblePos().x" 
+         [style.top.px]="remoteBubblePos().y"
+         (mousedown)="onDragStart($event, 'remote')"
+         (touchstart)="onDragStart($event, 'remote')">
+      @if (isRemoteVideoTrackActive()) {
+        <video #remoteWebcamVideo [srcObject]="signalingService.remoteWebcamStream()" autoplay playsinline (loadedmetadata)="onVideoLoaded($event)" class="bubble-video"></video>
+      } @else {
+        <div class="bubble-avatar-placeholder">
+          <span class="avatar-icon">👤</span>
+        </div>
+      }
+      @if (isRemoteInPiP()) {
+        <div class="pip-overlay">
+          <span class="pip-overlay-icon">🖼️</span>
+          <span class="pip-overlay-text">PiP Active</span>
+        </div>
+      }
+      <div class="bubble-info">
+        <span class="bubble-name">{{ getPartnerName() }}</span>
+        <div class="bubble-controls">
+          <button class="bubble-btn" (click)="$event.stopPropagation(); toggleRemotePiP()" [title]="isRemoteInPiP() ? 'Exit PiP' : 'Pop Out (PiP)'">
+            {{ isRemoteInPiP() ? '↩️' : '🖼️' }}
+          </button>
+          <button class="bubble-btn" (click)="$event.stopPropagation(); takeScreenshot('remote')" title="Screenshot">
+            📸
+          </button>
+          <button class="bubble-btn" 
+                  [class.recording]="isRecording() === 'remote'"
+                  (click)="$event.stopPropagation(); toggleRecording('remote')" 
+                  [title]="isRecording() === 'remote' ? 'Stop Recording' : 'Record 30s'">
+            {{ isRecording() === 'remote' ? '⏹️' : '⏺️' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- Always-Visible Media Control Bar -->
+  <div class="media-control-bar glass" [class.minimized]="isControlsMinimized()">
+    <div class="control-bar-left">
+      <!-- Webcam Status -->
+      @if (webcamError()) {
+        <span class="webcam-status error" title="Camera failed to start">⚠️ Camera Error</span>
+      } @else if (!signalingService.localWebcamStream()) {
+        <span class="webcam-status loading">📷 Starting Camera...</span>
+      } @else {
+        <span class="webcam-status active">📷 Camera Active</span>
+      }
+    </div>
+
+    <div class="control-bar-center">
+      <!-- Mic Toggle -->
+      <button class="control-btn" 
+              (click)="toggleMute()" 
+              [class.control-off]="signalingService.isMuted()"
+              [title]="signalingService.isMuted() ? 'Unmute Microphone' : 'Mute Microphone'">
+        {{ signalingService.isMuted() ? '🔇' : '🎙️' }}
+        <span class="control-label">{{ signalingService.isMuted() ? 'Unmute' : 'Mute' }}</span>
+      </button>
+
+      <!-- Camera Toggle -->
+      <button class="control-btn" 
+              (click)="toggleCamera()" 
+              [class.control-off]="signalingService.isCameraOff()"
+              [title]="signalingService.isCameraOff() ? 'Turn Camera On' : 'Turn Camera Off'">
+        {{ signalingService.isCameraOff() ? '🚫' : '📷' }}
+        <span class="control-label">{{ signalingService.isCameraOff() ? 'Show Cam' : 'Hide Cam' }}</span>
+      </button>
+
+      <!-- Restart webcam if it failed -->
+      @if (webcamError()) {
+        <button class="control-btn" (click)="retryWebcam()" title="Retry Camera">
+          🔄
+          <span class="control-label">Retry Cam</span>
+        </button>
+      }
+
+      <!-- PiP for partner (only if partner connected) -->
+      @if (signalingService.remoteWebcamStream()) {
+        <button class="control-btn" (click)="toggleRemotePiP()" title="Pop partner video on top (PiP)">
+          🖼️
+          <span class="control-label">PiP Partner</span>
+        </button>
+      }
+    </div>
+
+    <div class="control-bar-right">
+      <!-- Connection status -->
+      @if (signalingService.users().length > 1) {
+        <span class="connection-status connected">🟢 Partner Connected</span>
+      } @else {
+        <span class="connection-status solo">🟡 Waiting for partner...</span>
+      }
+      <button class="minimize-btn" (click)="isControlsMinimized.set(!isControlsMinimized())" [title]="isControlsMinimized() ? 'Expand Controls' : 'Minimize Controls'">
+        {{ isControlsMinimized() ? '⬆️' : '⬇️' }}
+      </button>
+    </div>
+  </div>
+
+  <!-- Collapsible Floating Chat Box -->
+  <div class="chat-system" [class.chat-open]="isChatOpen()">
+    <button class="chat-bubble-trigger glass glow-primary" (click)="isChatOpen.set(!isChatOpen())">
+      <span class="chat-icon">💬</span>
+      @if (signalingService.chatMessages().length > 0 && !isChatOpen()) {
+        <span class="chat-badge">{{ signalingService.chatMessages().length }}</span>
+      }
+    </button>
+
+    @if (isChatOpen()) {
+      <div class="chat-panel glass glow-primary">
+        <div class="chat-header">
+          <h3>Chat Room</h3>
+          <button class="close-chat" (click)="isChatOpen.set(false)">✖</button>
+        </div>
+
+        <div #chatMessagesContainer class="chat-messages">
+          @for (msg of signalingService.chatMessages(); track msg.id) {
+            <div class="message-wrapper" [class.self-msg]="msg.senderId === signalingService.currentUser()?.socketId">
+              <div class="message-sender">{{ msg.sender }}</div>
+              <div class="message-bubble">
+                <p>{{ msg.text }}</p>
+                <span class="message-time">{{ msg.timestamp }}</span>
+              </div>
+            </div>
+          } @empty {
+            <div class="empty-chat">
+              <p>No messages yet. Say hi! 👋</p>
+            </div>
+          }
+        </div>
+
+        <form (submit)="sendChatMessage()" class="chat-input-form">
+          <input type="text" 
+                 [(ngModel)]="chatMessageText" 
+                 name="messageText" 
+                 placeholder="Type a message..." 
+                 autocomplete="off" />
+          <button type="submit" [disabled]="!chatMessageText().trim()">🚀</button>
+        </form>
+      </div>
+    }
+  </div>
+
+  <!-- Floating reactions layer -->
+  <div class="floating-reactions-container">
+    @for (react of reactionsList(); track react.id) {
+      <div class="floating-reaction" [style.left.%]="react.left">
+        {{ react.emoji }}
+      </div>
+    }
+  </div>
+
+</div>
