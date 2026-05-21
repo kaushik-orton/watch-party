@@ -1,5 +1,5 @@
 import { Component, inject, signal, ViewChild, ElementRef, AfterViewInit, OnDestroy, effect } from '@angular/core';
-import { Router } from '@angular/router';
+import { Router, ActivatedRoute } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { SignalingService, ChatMessage } from '../../services/signaling.service';
 
@@ -13,6 +13,7 @@ import { SignalingService, ChatMessage } from '../../services/signaling.service'
 export class TheaterComponent implements AfterViewInit, OnDestroy {
   public signalingService = inject(SignalingService);
   private router = inject(Router);
+  private route = inject(ActivatedRoute);
 
   @ViewChild('localVideo') localVideoRef!: ElementRef<HTMLVideoElement>;
   @ViewChild('remoteVideo') remoteVideoRef!: ElementRef<HTMLVideoElement>;
@@ -85,6 +86,14 @@ export class TheaterComponent implements AfterViewInit, OnDestroy {
   }
 
   ngAfterViewInit() {
+    // If this page is opened directly (without joining via lobby),
+    // there is no active peer/user state. Redirect to lobby with room code.
+    if (!this.signalingService.currentUser()) {
+      const roomId = this.route.snapshot.paramMap.get('id');
+      this.router.navigate(['/'], roomId ? { queryParams: { room: roomId } } : undefined);
+      return;
+    }
+
     // Safety fallback: re-assign srcObject via ViewChild after a delay
     // (Primary assignment is done via [srcObject] template binding)
     effect(() => {
