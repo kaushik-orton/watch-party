@@ -430,6 +430,12 @@ export class SignalingService {
   }
 
   public setLocalFileStream(stream: MediaStream, fileName?: string) {
+    // Stop any existing stream tracks first to free up system resources
+    const oldStream = this.localScreenStream();
+    if (oldStream) {
+      oldStream.getTracks().forEach(track => track.stop());
+    }
+
     const videoTrack = stream.getVideoTracks()[0];
     if (videoTrack) {
       videoTrack.contentHint = 'motion';

@@ -133,6 +133,26 @@ export class TheaterComponent implements AfterViewInit, OnDestroy {
       }
     }, { injector: this.injector });
 
+    effect(() => {
+      const remoteScreen = this.signalingService.remoteScreenStream();
+      if (remoteScreen) {
+        setTimeout(() => {
+          if (this.remoteVideoRef?.nativeElement) {
+            this.remoteVideoRef.nativeElement.srcObject = remoteScreen;
+            this.remoteVideoRef.nativeElement.play().catch((err) => {
+              console.warn('Guest: Autoplay blocked for remote movie stream, retrying muted...', err);
+              if (this.remoteVideoRef?.nativeElement) {
+                this.remoteVideoRef.nativeElement.muted = true;
+                this.remoteVideoRef.nativeElement.play().catch((playErr) => {
+                  console.error('Guest: Muted autoplay also blocked:', playErr);
+                });
+              }
+            });
+          }
+        }, 200);
+      }
+    }, { injector: this.injector });
+
     // Auto-scroll chat to bottom when messages update
     effect(() => {
       const messages = this.signalingService.chatMessages();
@@ -193,13 +213,13 @@ export class TheaterComponent implements AfterViewInit, OnDestroy {
         
         // Wait for metadata to load and capture the stream
         videoElement.onloadedmetadata = () => {
-          // Capture stream (video + audio) from the video element
+          // Capture stream (video + audio) from the video element at 24 FPS to keep the WebRTC stream active
           let stream: MediaStream;
           const anyVideoEl = videoElement as any;
           if (anyVideoEl.captureStream) {
-            stream = anyVideoEl.captureStream();
+            stream = anyVideoEl.captureStream(24);
           } else if (anyVideoEl.mozCaptureStream) {
-            stream = anyVideoEl.mozCaptureStream();
+            stream = anyVideoEl.mozCaptureStream(24);
           } else {
             console.error('Browser does not support captureStream()');
             return;
