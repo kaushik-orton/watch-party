@@ -22,6 +22,7 @@ export class SignalingService {
   private peer: Peer | null = null;
   private dataConn: DataConnection | null = null;
   private guestId: string | null = null; // Used by host to track guest peer ID
+  private restoreMicAfterShare = false;
   
   // App states
   public currentRoomId = signal<string>('');
@@ -316,6 +317,17 @@ export class SignalingService {
       this.localScreenStream.set(stream);
       this.isScreenSharing.set(true);
       this.hostScreenStreamType.set('screen');
+
+      // Prevent doubled/echoed audio: mute mic while sharing system audio.
+      const webcam = this.localWebcamStream();
+      const micTrack = webcam?.getAudioTracks()[0];
+      if (micTrack && micTrack.enabled) {
+        micTrack.enabled = false;
+        this.isMuted.set(true);
+        this.restoreMicAfterShare = true;
+      } else {
+        this.restoreMicAfterShare = false;
+      }
       
       stream.getVideoTracks()[0].onended = () => {
         this.stopScreenShare();
@@ -345,6 +357,18 @@ export class SignalingService {
     this.localScreenStream.set(stream);
     this.isScreenSharing.set(true);
     this.hostScreenStreamType.set('file');
+
+    // Prevent doubled/echoed audio for local file share too.
+    const webcam = this.localWebcamStream();
+    const micTrack = webcam?.getAudioTracks()[0];
+    if (micTrack && micTrack.enabled) {
+      micTrack.enabled = false;
+      this.isMuted.set(true);
+      this.restoreMicAfterShare = true;
+    } else {
+      this.restoreMicAfterShare = false;
+    }
+
     if (fileName) {
       this.hostScreenFileName.set(fileName);
     }
@@ -360,6 +384,17 @@ export class SignalingService {
       this.hostScreenStreamType.set('none');
       this.hostScreenFileName.set('');
       this.broadcast('screen-stop', {});
+
+      // Restore mic only if we muted it automatically at share start.
+      if (this.restoreMicAfterShare) {
+        const webcam = this.localWebcamStream();
+        const micTrack = webcam?.getAudioTracks()[0];
+        if (micTrack) {
+          micTrack.enabled = true;
+          this.isMuted.set(false);
+        }
+        this.restoreMicAfterShare = false;
+      }
     }
   }
 
