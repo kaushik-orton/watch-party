@@ -1,4 +1,4 @@
-import { Component, inject, signal, ViewChild, ElementRef, AfterViewInit, OnDestroy, effect } from '@angular/core';
+import { Component, inject, signal, ViewChild, ElementRef, AfterViewInit, OnDestroy, effect, Injector } from '@angular/core';
 import { Router, ActivatedRoute } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { SignalingService, ChatMessage } from '../../services/signaling.service';
@@ -14,6 +14,7 @@ export class TheaterComponent implements AfterViewInit, OnDestroy {
   public signalingService = inject(SignalingService);
   private router = inject(Router);
   private route = inject(ActivatedRoute);
+  private injector = inject(Injector);
 
   @ViewChild('localVideo') localVideoRef!: ElementRef<HTMLVideoElement>;
   @ViewChild('remoteVideo') remoteVideoRef!: ElementRef<HTMLVideoElement>;
@@ -106,7 +107,7 @@ export class TheaterComponent implements AfterViewInit, OnDestroy {
           }
         }, 200);
       }
-    });
+    }, { injector: this.injector });
 
     effect(() => {
       const remoteStream = this.signalingService.remoteWebcamStream();
@@ -118,7 +119,7 @@ export class TheaterComponent implements AfterViewInit, OnDestroy {
           }
         }, 200);
       }
-    });
+    }, { injector: this.injector });
 
     effect(() => {
       const localScreen = this.signalingService.localScreenStream();
@@ -130,7 +131,7 @@ export class TheaterComponent implements AfterViewInit, OnDestroy {
           }
         }, 200);
       }
-    });
+    }, { injector: this.injector });
 
     // Auto-scroll chat to bottom when messages update
     effect(() => {
@@ -138,7 +139,7 @@ export class TheaterComponent implements AfterViewInit, OnDestroy {
       if (messages.length > 0) {
         setTimeout(() => this.scrollToBottom(), 50);
       }
-    });
+    }, { injector: this.injector });
 
     // Automatically start webcam when joining room
     this.signalingService.startLocalWebcam().then(stream => {
