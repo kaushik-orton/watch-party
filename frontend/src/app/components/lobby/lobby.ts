@@ -63,7 +63,25 @@ export class LobbyComponent {
       isHost = true;
     }
 
-    await this.signalingService.joinRoom(targetRoomId, this.username(), isHost);
+    try {
+      await this.signalingService.joinRoom(targetRoomId, this.username(), isHost);
+    } catch (err: any) {
+      // If joining fails because room host isn't available yet,
+      // promote this user to host of that room automatically.
+      const errType = err?.type || '';
+      const errMsg = (err?.message || '').toString().toLowerCase();
+      const roomUnavailable =
+        errType === 'peer-unavailable' ||
+        errMsg.includes('room-unavailable') ||
+        errMsg.includes('peer-unavailable');
+
+      if (!isHost && targetRoomId && roomUnavailable) {
+        await this.signalingService.joinRoom(targetRoomId, this.username(), true);
+      } else {
+        throw err;
+      }
+    }
+
     this.router.navigate(['/room', targetRoomId]);
   }
 }

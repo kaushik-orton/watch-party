@@ -142,14 +142,16 @@ export class TheaterComponent implements AfterViewInit, OnDestroy {
 
     // Automatically start webcam when joining room
     this.signalingService.startLocalWebcam().then(stream => {
-      if (!stream) {
-        const secureContextHint = window.isSecureContext
-          ? 'Please allow camera permission in your browser site settings.'
-          : 'Camera requires a secure context. Use localhost/HTTPS.';
-        this.webcamError.set(`Camera and microphone are both required. ${secureContextHint}`);
-      } else {
-        this.webcamError.set('');
-      }
+      setTimeout(() => {
+        if (!stream) {
+          const secureContextHint = window.isSecureContext
+            ? 'Please allow camera permission in your browser site settings.'
+            : 'Camera requires a secure context. Use localhost/HTTPS.';
+          this.webcamError.set(`Camera and microphone are both required. ${secureContextHint}`);
+        } else {
+          this.webcamError.set('');
+        }
+      });
     });
   }
 
@@ -352,29 +354,15 @@ export class TheaterComponent implements AfterViewInit, OnDestroy {
   }
 
   private triggerFloatingEmoji(emoji: string) {
-    const numEmojis = 10;
-    const newEmojis: { id: string; emoji: string; style: string }[] = [];
+    const id = Math.random().toString(36).substring(2, 9);
+    const style = `--duration: 1s;`;
+    const newEmoji = { id, emoji, style };
 
-    for (let i = 0; i < numEmojis; i++) {
-      const id = Math.random().toString(36).substring(2, 9);
-      const startX = `${18 + Math.random() * 64}vw`;
-      const startY = `${74 + Math.random() * 12}vh`;
-      const driftX = `${(Math.random() - 0.5) * 22}vw`;
-      const riseY = `${12 + Math.random() * 16}vh`;
-      const scale = (Math.random() * 0.35 + 0.8).toFixed(2);
-      const duration = (Math.random() * 0.8 + 1.8).toFixed(2);
-      const delay = (Math.random() * 0.25).toFixed(2);
-      const style = `--start-x: ${startX}; --start-y: ${startY}; --drift-x: ${driftX}; --rise-y: ${riseY}; --scale: ${scale}; --duration: ${duration}s; --delay: ${delay}s;`;
-
-      newEmojis.push({ id, emoji, style });
-    }
-
-    this.reactionsList.update(prev => [...prev, ...newEmojis]);
+    this.reactionsList.update(prev => [...prev, newEmoji]);
 
     setTimeout(() => {
-      const idsToRemove = new Set(newEmojis.map(e => e.id));
-      this.reactionsList.update(prev => prev.filter(r => !idsToRemove.has(r.id)));
-    }, 3200);
+      this.reactionsList.update(prev => prev.filter(r => r.id !== id));
+    }, 1000);
   }
 
   // --- VIDEO ELEMENT HELPERS ---
@@ -412,14 +400,16 @@ export class TheaterComponent implements AfterViewInit, OnDestroy {
   public retryWebcam() {
     this.webcamError.set('');
     this.signalingService.startLocalWebcam().then(stream => {
-      if (!stream) {
-        const secureContextHint = window.isSecureContext
-          ? 'Please allow camera permission in your browser site settings.'
-          : 'Camera requires a secure context. Use localhost/HTTPS.';
-        this.webcamError.set(`Camera and microphone are both required. ${secureContextHint}`);
-      } else {
-        this.webcamError.set('');
-      }
+      setTimeout(() => {
+        if (!stream) {
+          const secureContextHint = window.isSecureContext
+            ? 'Please allow camera permission in your browser site settings.'
+            : 'Camera requires a secure context. Use localhost/HTTPS.';
+          this.webcamError.set(`Camera and microphone are both required. ${secureContextHint}`);
+        } else {
+          this.webcamError.set('');
+        }
+      });
     });
   }
 

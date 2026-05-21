@@ -106,7 +106,9 @@ export class SignalingService {
           if (this.localWebcamStream()) {
             const call = this.peer!.call(this.guestId!, this.localWebcamStream()!, { metadata: { type: 'webcam' } });
             call.on('stream', (remoteStream) => {
-              this.remoteWebcamStream.set(remoteStream);
+              setTimeout(() => {
+                this.remoteWebcamStream.set(remoteStream);
+              });
             });
           }
           
@@ -123,7 +125,9 @@ export class SignalingService {
           // Answer with our webcam (even if null)
           call.answer(this.localWebcamStream() || undefined);
           call.on('stream', (remoteStream) => {
-            this.remoteWebcamStream.set(remoteStream);
+            setTimeout(() => {
+              this.remoteWebcamStream.set(remoteStream);
+            });
           });
         }
       });
@@ -131,10 +135,23 @@ export class SignalingService {
     } else {
       // Guest creates a random peer and connects to the host
       this.peer = new Peer(this.rtcConfig);
+      let settled = false;
+      const safeResolve = () => {
+        if (!settled) {
+          settled = true;
+          resolve();
+        }
+      };
+      const safeReject = (err: unknown) => {
+        if (!settled) {
+          settled = true;
+          reject(err);
+        }
+      };
+
       this.peer.on('open', (id) => {
         this.currentUser.set({ id, username, isHost: false });
-        resolve();
-        
+
         // Open data connection
         const conn = this.peer!.connect(roomId, { metadata: { username } });
         this.dataConn = conn;
@@ -142,12 +159,23 @@ export class SignalingService {
         
         // Once connected, call the host with our webcam
         conn.on('open', () => {
-          if (this.localWebcamStream()) {
-            const call = this.peer!.call(roomId, this.localWebcamStream()!, { metadata: { type: 'webcam' } });
-            call.on('stream', (remoteStream) => {
-              this.remoteWebcamStream.set(remoteStream);
-            });
-          }
+          setTimeout(() => {
+            safeResolve();
+
+            if (this.localWebcamStream()) {
+              const call = this.peer!.call(roomId, this.localWebcamStream()!, { metadata: { type: 'webcam' } });
+              call.on('stream', (remoteStream) => {
+                setTimeout(() => {
+                  this.remoteWebcamStream.set(remoteStream);
+                });
+              });
+            }
+          });
+        });
+
+        conn.on('error', (err) => {
+          console.error('Guest data connection error:', err);
+          safeReject(err);
         });
       });
       
@@ -157,23 +185,36 @@ export class SignalingService {
           // Answer with our webcam (even if null)
           call.answer(this.localWebcamStream() || undefined);
           call.on('stream', (remoteStream) => {
-            this.remoteWebcamStream.set(remoteStream);
+            setTimeout(() => {
+              this.remoteWebcamStream.set(remoteStream);
+            });
           });
         }
         else if ((call.metadata as any)?.type === 'screen') {
           call.answer(); // Answer without stream to just receive
-          const streamType = (call.metadata as any)?.streamType || 'screen';
-          this.remoteStreamType.set(streamType);
+          setTimeout(() => {
+            const streamType = (call.metadata as any)?.streamType || 'screen';
+            this.remoteStreamType.set(streamType);
+          });
           call.on('stream', (remoteStream) => {
-            this.remoteScreenStream.set(remoteStream);
+            setTimeout(() => {
+              this.remoteScreenStream.set(remoteStream);
+            });
           });
         }
       });
 
       this.peer.on('error', (err) => {
         console.error('PeerJS Error:', err);
-        reject(err);
+        safeReject(err);
       });
+
+      // If room host is unreachable/non-existent, fail fast so caller can handle fallback.
+      setTimeout(() => {
+        if (!settled && (!this.dataConn || !this.dataConn.open)) {
+          safeReject(new Error('room-unavailable'));
+        }
+      }, 8000);
       } // Closes else block
     });
   }
@@ -195,32 +236,34 @@ export class SignalingService {
   // --- Data Channel Events ---
   private setupDataListeners(conn: DataConnection) {
     conn.on('data', (raw: unknown) => {
-      const data = raw as any;
-      switch (data.type) {
-        case 'chat':
-          this.chatMessages.update(msgs => [...msgs, data.message]);
-          break;
-        case 'reaction':
-          this.activeReaction.set(data.reactionData);
-          break;
-        case 'sync':
-          this.playbackState.set(data.state);
-          break;
-        case 'users':
-          this.users.set(data.users);
-          break;
-        case 'screen-start':
-          this.remoteStreamType.set(data.streamType);
-          if (data.fileName) {
-            this.remoteVideoFileName.set(data.fileName);
-          }
-          break;
-        case 'screen-stop':
-          this.remoteScreenStream.set(null);
-          this.remoteStreamType.set('none');
-          this.remoteVideoFileName.set('');
-          break;
-      }
+      setTimeout(() => {
+        const data = raw as any;
+        switch (data.type) {
+          case 'chat':
+            this.chatMessages.update(msgs => [...msgs, data.message]);
+            break;
+          case 'reaction':
+            this.activeReaction.set(data.reactionData);
+            break;
+          case 'sync':
+            this.playbackState.set(data.state);
+            break;
+          case 'users':
+            this.users.set(data.users);
+            break;
+          case 'screen-start':
+            this.remoteStreamType.set(data.streamType);
+            if (data.fileName) {
+              this.remoteVideoFileName.set(data.fileName);
+            }
+            break;
+          case 'screen-stop':
+            this.remoteScreenStream.set(null);
+            this.remoteStreamType.set('none');
+            this.remoteVideoFileName.set('');
+            break;
+        }
+      });
     });
   }
 
@@ -244,14 +287,18 @@ export class SignalingService {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
 
-      this.localWebcamStream.set(stream);
+      setTimeout(() => {
+        this.localWebcamStream.set(stream);
+      });
       
       // If we have a connected peer, initiate a webcam call to send our video!
       const targetId = this.currentUser()?.isHost ? this.guestId : this.currentRoomId();
       if (this.peer && this.dataConn?.open && targetId) {
         const call = this.peer.call(targetId, stream, { metadata: { type: 'webcam' } });
         call.on('stream', (remoteStream) => {
-          this.remoteWebcamStream.set(remoteStream);
+          setTimeout(() => {
+            this.remoteWebcamStream.set(remoteStream);
+          });
         });
       }
       return stream;
@@ -327,20 +374,22 @@ export class SignalingService {
         }
       }
 
-      this.localScreenStream.set(stream);
-      this.isScreenSharing.set(true);
-      this.hostScreenStreamType.set('screen');
+      setTimeout(() => {
+        this.localScreenStream.set(stream);
+        this.isScreenSharing.set(true);
+        this.hostScreenStreamType.set('screen');
 
-      // Prevent doubled/echoed audio: mute mic while sharing system audio.
-      const webcam = this.localWebcamStream();
-      const micTrack = webcam?.getAudioTracks()[0];
-      if (micTrack && micTrack.enabled) {
-        micTrack.enabled = false;
-        this.isMuted.set(true);
-        this.restoreMicAfterShare = true;
-      } else {
-        this.restoreMicAfterShare = false;
-      }
+        // Prevent doubled/echoed audio: mute mic while sharing system audio.
+        const webcam = this.localWebcamStream();
+        const micTrack = webcam?.getAudioTracks()[0];
+        if (micTrack && micTrack.enabled) {
+          micTrack.enabled = false;
+          this.isMuted.set(true);
+          this.restoreMicAfterShare = true;
+        } else {
+          this.restoreMicAfterShare = false;
+        }
+      });
       
       stream.getVideoTracks()[0].onended = () => {
         this.stopScreenShare();
