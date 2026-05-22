@@ -18,6 +18,7 @@ export class LobbyComponent {
   public username = signal('');
   public roomId = signal('');
   public isJoining = signal(false);
+  public isConnecting = signal(false);
 
   // Parallax properties
   public mouseX = signal(0);
@@ -52,7 +53,9 @@ export class LobbyComponent {
     if (event) {
       event.preventDefault();
     }
-    if (!this.username().trim()) return;
+    if (!this.username().trim() || this.isConnecting()) return;
+
+    this.isConnecting.set(true);
 
     let targetRoomId = this.roomId().trim();
     let isHost = false;
@@ -79,11 +82,15 @@ export class LobbyComponent {
 
       if (errType === 'unavailable-id' || errMsg.includes('taken')) {
         alert('This room code is already in use by another active watch party. Please try a different code or start a new party.');
+      } else if (errType === 'network-error') {
+        alert('Network connectivity failed \u2014 your devices cannot establish a direct connection.\n\nThis usually happens when both devices are on different networks (e.g. mobile data + WiFi) with restrictive NAT.\n\nWorkaround: Connect both devices to the same WiFi network and try again.');
       } else if (errType === 'peer-unavailable' || errMsg.includes('room-unavailable') || errMsg.includes('peer-unavailable')) {
         alert('Could not find or connect to the watch party. Please make sure the room code is correct and the host is online.');
       } else {
         alert(`Failed to enter the room: ${err?.message || 'Connection lost or broker server error. Please try again.'}`);
       }
+    } finally {
+      this.isConnecting.set(false);
     }
   }
 }

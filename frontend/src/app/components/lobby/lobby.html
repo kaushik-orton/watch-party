@@ -203,8 +203,13 @@
         </div>
       }
 
-      <button type="submit" class="submit-btn" [disabled]="!username().trim() || (isJoining() && !roomId().trim())">
-        {{ isJoining() ? 'Join Room' : 'Generate & Host Room' }}
+      <button type="submit" class="submit-btn" [disabled]="isConnecting() || !username().trim() || (isJoining() && !roomId().trim())">
+        @if (isConnecting()) {
+          <span class="btn-spinner"></span>
+          Connecting...
+        } @else {
+          {{ isJoining() ? 'Join Room' : 'Generate & Host Room' }}
+        }
       </button>
     </form>
 

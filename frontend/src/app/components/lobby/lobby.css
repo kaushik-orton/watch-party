@@ -339,6 +339,36 @@
   cursor: not-allowed;
 }
 
+.submit-btn:disabled:has(.btn-spinner) {
+  opacity: 0.75;
+  cursor: wait;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  animation: btn-pulse 1.8s ease-in-out infinite;
+}
+
+.btn-spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 2.5px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes btn-pulse {
+  0%, 100% { opacity: 0.75; }
+  50% { opacity: 0.9; }
+}
+
 .lobby-tabs {
   display: flex;
   background: rgba(255, 255, 255, 0.04);

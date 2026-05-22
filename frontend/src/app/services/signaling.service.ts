@@ -32,10 +32,11 @@ export class SignalingService {
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
         { urls: 'stun:stun2.l.google.com:19302' },
-        // Public relay for hobby/demo usage. Replace with your own TURN for production reliability.
-        { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
-        { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-        { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
+        { urls: 'stun:stun3.l.google.com:19302' },
+        { urls: 'stun:stun4.l.google.com:19302' },
+        // TURN relay servers are required for cross-network connectivity (symmetric NAT, mobile carriers).
+        // The free openrelay.metered.ca servers are no longer operational.
+        // For production: set up coturn on a VPS, or use Metered.ca / Twilio / Xirsys free tier.
       ]
     }
   };
@@ -124,6 +125,7 @@ export class SignalingService {
           this.users.update(u => [...u, { id: conn.peer, username: guestName, isHost: false }]);
           
           this.setupDataListeners(conn);
+          this.monitorConnection(conn, 'Host');
           
           // Send initial state to the guest once connected
           const onOpen = () => {
@@ -177,6 +179,7 @@ export class SignalingService {
           const conn = this.peer!.connect(roomId, { metadata: { username } });
           this.dataConn = conn;
           this.setupDataListeners(conn);
+          this.monitorConnection(conn, 'Guest');
           
           // Once connected, call the host with our webcam
           const onOpen = () => {
@@ -244,7 +247,17 @@ export class SignalingService {
         // If room host is unreachable/non-existent, fail fast so caller can handle fallback.
         setTimeout(() => {
           if (!settled && (!this.dataConn || !this.dataConn.open)) {
-            safeReject(new Error('room-unavailable'));
+            const pc = (this.dataConn as any)?.peerConnection as RTCPeerConnection | undefined;
+            const iceState = pc?.iceConnectionState || 'unknown';
+            const gatherState = pc?.iceGatheringState || 'unknown';
+            const connState = pc?.connectionState || 'unknown';
+            console.error(`[WP] Connection timeout (15s). ICE: ${iceState}, Gathering: ${gatherState}, PC: ${connState}, conn.open: ${this.dataConn?.open}`);
+            
+            if (iceState === 'failed' || iceState === 'disconnected' || iceState === 'checking' || iceState === 'new') {
+              safeReject({ type: 'network-error', message: `ICE connectivity failed (state: ${iceState}). A TURN relay server is required for cross-network connections.` });
+            } else {
+              safeReject(new Error('room-unavailable'));
+            }
           }
         }, 15000);
       }
@@ -274,6 +287,38 @@ export class SignalingService {
     this.playbackState.set({ playing: false, time: 0, speed: 1 });
     this.dataConn = null;
     this.guestId = null;
+  }
+
+  // --- Connection Monitoring ---
+  private monitorConnection(conn: DataConnection, label: string) {
+    console.log(`[WP][${label}] DataConnection created → peer=${conn.peer}, open=${conn.open}`);
+    
+    const attachPcMonitoring = () => {
+      const pc = (conn as any)?.peerConnection as RTCPeerConnection | undefined;
+      if (pc) {
+        console.log(`[WP][${label}] RTCPeerConnection – ICE: ${pc.iceConnectionState}, Gathering: ${pc.iceGatheringState}`);
+        
+        pc.addEventListener('iceconnectionstatechange', () => {
+          console.log(`[WP][${label}] ICE state → ${pc.iceConnectionState}`);
+        });
+        pc.addEventListener('icegatheringstatechange', () => {
+          console.log(`[WP][${label}] ICE gathering → ${pc.iceGatheringState}`);
+        });
+        pc.addEventListener('icecandidate', (e) => {
+          if (e.candidate) {
+            console.log(`[WP][${label}] ICE candidate: type=${e.candidate.type} protocol=${e.candidate.protocol} ${e.candidate.candidate.substring(0, 90)}`);
+          } else {
+            console.log(`[WP][${label}] ICE candidate gathering complete`);
+          }
+        });
+        pc.addEventListener('connectionstatechange', () => {
+          console.log(`[WP][${label}] PeerConnection state → ${pc.connectionState}`);
+        });
+      } else {
+        setTimeout(attachPcMonitoring, 300);
+      }
+    };
+    attachPcMonitoring();
   }
 
   // --- Data Channel Events ---
