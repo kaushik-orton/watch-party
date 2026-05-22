@@ -27,7 +27,8 @@ export class TheaterComponent implements AfterViewInit, OnDestroy {
   public isChatOpen = signal(false);
   public chatMessageText = signal('');
   public selectedVideoFileName = signal('');
-  public hasLocalFileLoaded = signal(false);
+  public hasLocalFileLoaded = this.signalingService.hasLocalFileLoaded;
+  public isStreamingEnabled = signal(true);
   public showShareMenu = signal(false);
   public isReactionsOpen = signal(true);
   public webcamError = signal<string>('');
@@ -199,6 +200,48 @@ export class TheaterComponent implements AfterViewInit, OnDestroy {
     event.preventDefault();
   }
 
+  public toggleStreamingEnabled() {
+    this.isStreamingEnabled.set(!this.isStreamingEnabled());
+    
+    // If a file is currently loaded on the host, adjust stream
+    if (this.signalingService.currentUser()?.isHost && this.signalingService.hasLocalFileLoaded()) {
+      const videoElement = document.getElementById('watch-player') as HTMLVideoElement;
+      if (videoElement) {
+        if (this.isStreamingEnabled()) {
+          // Start streaming
+          let stream: MediaStream;
+          const anyVideoEl = videoElement as any;
+          if (anyVideoEl.captureStream) {
+            stream = anyVideoEl.captureStream(24);
+          } else if (anyVideoEl.mozCaptureStream) {
+            stream = anyVideoEl.mozCaptureStream(24);
+          } else {
+            console.error('Browser does not support captureStream()');
+            return;
+          }
+          this.signalingService.setLocalFileStream(stream, this.selectedVideoFileName());
+        } else {
+          // Stop streaming (switch to file info only)
+          this.signalingService.setLocalFileNoStream(this.selectedVideoFileName());
+        }
+      }
+    }
+  }
+
+  public unloadLocalFile() {
+    this.hasLocalFileLoaded.set(false);
+    this.selectedVideoFileName.set('');
+    
+    // Clear video player source
+    const videoElement = document.getElementById('watch-player') as HTMLVideoElement;
+    if (videoElement) {
+      videoElement.src = '';
+    }
+    
+    // Notify host
+    this.signalingService.notifyLocalFileStatus(false);
+  }
+
   private loadLocalVideo(file: File) {
     this.selectedVideoFileName.set(file.name);
     this.hasLocalFileLoaded.set(true);
@@ -211,26 +254,37 @@ export class TheaterComponent implements AfterViewInit, OnDestroy {
       if (videoElement) {
         videoElement.src = fileUrl;
         
-        // Wait for metadata to load and capture the stream
-        videoElement.onloadedmetadata = () => {
-          // Capture stream (video + audio) from the video element at 24 FPS to keep the WebRTC stream active
-          let stream: MediaStream;
-          const anyVideoEl = videoElement as any;
-          if (anyVideoEl.captureStream) {
-            stream = anyVideoEl.captureStream(24);
-          } else if (anyVideoEl.mozCaptureStream) {
-            stream = anyVideoEl.mozCaptureStream(24);
-          } else {
-            console.error('Browser does not support captureStream()');
-            return;
-          }
+        if (this.signalingService.currentUser()?.isHost) {
+          if (this.isStreamingEnabled()) {
+            // Wait for metadata to load and capture the stream
+            videoElement.onloadedmetadata = () => {
+              // Capture stream (video + audio) from the video element at 24 FPS to keep the WebRTC stream active
+              let stream: MediaStream;
+              const anyVideoEl = videoElement as any;
+              if (anyVideoEl.captureStream) {
+                stream = anyVideoEl.captureStream(24);
+              } else if (anyVideoEl.mozCaptureStream) {
+                stream = anyVideoEl.mozCaptureStream(24);
+              } else {
+                console.error('Browser does not support captureStream()');
+                return;
+              }
 
-          // Share this stream via the screen peer connection
-          this.signalingService.setLocalFileStream(stream, file.name);
-        };
+              // Share this stream via the screen peer connection
+              this.signalingService.setLocalFileStream(stream, file.name);
+            };
+          } else {
+            // No stream mode
+            this.signalingService.setLocalFileNoStream(file.name);
+          }
+        } else {
+          // Guest mode: notify host that we loaded the file locally
+          this.signalingService.notifyLocalFileStatus(true);
+        }
       }
     }, 100);
   }
+
 
   // --- SUBTITLES ---
   public onSubtitleSelected(event: Event) {

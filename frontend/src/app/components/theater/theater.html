@@ -38,12 +38,24 @@
                 <input type="file" accept="video/*" class="file-input" (change)="onFileSelected($event)" />
               </label>
             </div>
+
+            <div class="stream-toggle-container glass">
+              <span class="toggle-icon">🌐</span>
+              <div class="toggle-info">
+                <span class="toggle-label">Stream Video to Partner</span>
+                <span class="toggle-desc">Turn off if partner has the local file (uses zero bandwidth)</span>
+              </div>
+              <label class="switch">
+                <input type="checkbox" [checked]="isStreamingEnabled()" (change)="toggleStreamingEnabled()">
+                <span class="slider round"></span>
+              </label>
+            </div>
           </div>
         </div>
       }
 
-      <!-- Host: Playing Local Video File -->
-      @if (signalingService.currentUser()?.isHost && hasLocalFileLoaded()) {
+      <!-- Playing Local Video File (Host or Guest) -->
+      @if (hasLocalFileLoaded()) {
         <div class="video-container">
           <video id="watch-player" 
                  class="video-player"
@@ -53,7 +65,23 @@
                  (seeked)="handleSeek()">
           </video>
           <div class="file-info glass">
-            <span class="file-name-span" title="{{ selectedVideoFileName() }}">Playing: {{ selectedVideoFileName() }}</span>
+            <div class="file-info-title-group">
+              <span class="file-name-span" title="{{ selectedVideoFileName() || signalingService.remoteVideoFileName() }}">
+                Playing: {{ selectedVideoFileName() || signalingService.remoteVideoFileName() }}
+              </span>
+              <div class="host-stream-toggle">
+                @if (signalingService.currentUser()?.isHost) {
+                  <span class="toggle-status-dot" [class.streaming]="isStreamingEnabled()"></span>
+                  <span class="toggle-status-text">{{ isStreamingEnabled() ? 'Streaming' : 'Not Streaming' }}</span>
+                  <label class="switch switch-mini">
+                    <input type="checkbox" [checked]="isStreamingEnabled()" (change)="toggleStreamingEnabled()">
+                    <span class="slider round"></span>
+                  </label>
+                } @else {
+                  <span class="sync-badge">🔄 Synced Locally</span>
+                }
+              </div>
+            </div>
             <div class="file-controls-group">
               <button class="btn-sub" (click)="searchSubtitlesOnline()" title="Search Subtitles Online">
                 🔍 Search Subs
@@ -62,7 +90,13 @@
                 💬 Load Subs
                 <input type="file" accept=".srt,.vtt" (change)="onSubtitleSelected($event)" style="display: none;" />
               </label>
-              <button class="btn-icon" (click)="stopScreenSharing()" title="Stop Sharing">❌</button>
+              @if (signalingService.currentUser()?.isHost) {
+                <button class="btn-icon" (click)="stopScreenSharing()" title="Stop Sharing">❌</button>
+              } @else {
+                <button class="btn-sub btn-use-stream" (click)="unloadLocalFile()" title="Switch back to stream">
+                  🔄 Use Stream
+                </button>
+              }
             </div>
           </div>
         </div>
@@ -93,19 +127,44 @@
         </div>
       }
 
-      <!-- Guest: Waiting for Host to Share -->
-      @if (!signalingService.currentUser()?.isHost && !signalingService.remoteScreenStream()) {
+      <!-- Guest: Waiting for Host to Share / Load Local Copy -->
+      @if (!signalingService.currentUser()?.isHost && !hasLocalFileLoaded() && !signalingService.remoteScreenStream()) {
         <div class="waiting-screen glass">
-          <div class="waiting-prompt">
-            <span class="wait-icon">⏳</span>
-            <h2>Waiting for host to start the show</h2>
-            <p>Sit back and relax. Once the host starts screen sharing or opens a movie, it will load here.</p>
-          </div>
+          @if (signalingService.remoteVideoFileName()) {
+            <div class="drop-zone" 
+                 (dragover)="onDragOver($event)" 
+                 (drop)="onFileDropped($event)">
+              <div class="drop-prompt">
+                <span class="drop-icon">📁</span>
+                <h2>Sync Local Copy</h2>
+                <p>The host has loaded: <strong>{{ signalingService.remoteVideoFileName() }}</strong></p>
+                <p>You can select your local copy of this file to watch in full quality with zero bandwidth (saving TURN data):</p>
+                
+                <div class="action-cards">
+                  <label class="action-card">
+                    <div class="card-icon">📁</div>
+                    <div class="card-text">
+                      <h3>Select Local File</h3>
+                      <span>Select the matching video file</span>
+                    </div>
+                    <input type="file" accept="video/*" class="file-input" (change)="onFileSelected($event)" />
+                  </label>
+                </div>
+                <p class="wait-note-sub">Otherwise, please wait for the host to enable video streaming.</p>
+              </div>
+            </div>
+          } @else {
+            <div class="waiting-prompt">
+              <span class="wait-icon">⏳</span>
+              <h2>Waiting for host to start the show</h2>
+              <p>Sit back and relax. Once the host starts screen sharing or opens a movie, it will load here.</p>
+            </div>
+          }
         </div>
       }
 
       <!-- Guest: Viewing Host's Stream -->
-      @if (!signalingService.currentUser()?.isHost && signalingService.remoteScreenStream()) {
+      @if (!signalingService.currentUser()?.isHost && !hasLocalFileLoaded() && signalingService.remoteScreenStream()) {
         <div class="video-container">
           <!-- Guest Player is a stream. The playback controls are sent to the host over socket -->
           <video #remoteVideo 
@@ -131,10 +190,14 @@
                     💬 Load Subs
                     <input type="file" accept=".srt,.vtt" (change)="onSubtitleSelected($event)" style="display: none;" />
                   </label>
+                  <label class="btn-sub btn-load-local" title="Load local copy of this file to sync and save bandwidth">
+                    📁 Load Local Copy
+                    <input type="file" accept="video/*" (change)="onFileSelected($event)" style="display: none;" />
+                  </label>
                 }
                 @if (signalingService.remoteStreamType() === 'file') {
                   <button class="btn-icon guest-play-btn" (click)="guestTogglePlay()" style="margin: 0;">
-                    {{ signalingService.playbackState().playing ? '⏸️ Pause' : '▶️ Play' }}
+                    {{ signalingService.playbackState().playing ? '⏸️' : '▶️' }}
                   </button>
                 }
               </div>

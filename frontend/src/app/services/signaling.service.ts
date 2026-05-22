@@ -77,6 +77,9 @@ export class SignalingService {
   public hostScreenStreamType = signal<'none' | 'screen' | 'file'>('none'); // What the host is currently sharing
   public hostScreenFileName = signal<string>('');
   public remoteVideoFileName = signal<string>('');
+  public hasLocalFileLoaded = signal<boolean>(false);
+
+  private screenCall: MediaConnection | null = null;
 
   // Playback sync
   public playbackState = signal<{ playing: boolean; time: number; speed: number }>({
@@ -158,8 +161,12 @@ export class SignalingService {
             }
             
             // If host is already sharing a screen/file, send it to the late-joining guest
-            if (this.localScreenStream() && this.hostScreenStreamType() !== 'none') {
-              this.initiateScreenCall(this.hostScreenStreamType() as 'screen' | 'file', this.hostScreenFileName());
+            if (this.hostScreenStreamType() !== 'none') {
+              if (this.localScreenStream()) {
+                this.initiateScreenCall(this.hostScreenStreamType() as 'screen' | 'file', this.hostScreenFileName());
+              } else {
+                this.broadcastStreamFileNameOnly(this.hostScreenFileName());
+              }
             }
           };
 
@@ -236,7 +243,12 @@ export class SignalingService {
             });
           }
           else if ((call.metadata as any)?.type === 'screen') {
+            if (this.hasLocalFileLoaded()) {
+              console.log('Guest has local file loaded. Ignoring incoming screen stream call to save bandwidth.');
+              return;
+            }
             call.answer(); // Answer without stream to just receive
+            this.screenCall = call; // Also save reference on guest
             setTimeout(() => {
               const streamType = (call.metadata as any)?.streamType || 'screen';
               this.remoteStreamType.set(streamType);
@@ -286,6 +298,7 @@ export class SignalingService {
     }
     this.stopLocalWebcam();
     this.stopScreenShare();
+    this.stopScreenCallOnly();
     
     // Reset all signals and variables to prevent stale state in new rooms
     this.currentRoomId.set('');
@@ -299,6 +312,7 @@ export class SignalingService {
     this.hostScreenStreamType.set('none');
     this.hostScreenFileName.set('');
     this.remoteVideoFileName.set('');
+    this.hasLocalFileLoaded.set(false);
     this.playbackState.set({ playing: false, time: 0, speed: 1 });
     this.dataConn = null;
     this.guestId = null;
@@ -364,6 +378,16 @@ export class SignalingService {
             this.remoteScreenStream.set(null);
             this.remoteStreamType.set('none');
             this.remoteVideoFileName.set('');
+            break;
+          case 'local-file-loaded':
+            console.log('Guest loaded file locally. Stopping screen call to save bandwidth.');
+            this.stopScreenCallOnly();
+            break;
+          case 'local-file-unloaded':
+            console.log('Guest unloaded local file. Restarting screen call.');
+            if (this.localScreenStream() && this.hostScreenStreamType() !== 'none') {
+              this.initiateScreenCall(this.hostScreenStreamType() as 'screen' | 'file', this.hostScreenFileName());
+            }
             break;
         }
       });
@@ -511,7 +535,8 @@ export class SignalingService {
     if (!stream || !this.guestId || !this.peer) return;
 
     this.broadcast('screen-start', { streamType, fileName });
-    this.peer.call(this.guestId, stream, { metadata: { type: 'screen', streamType } });
+    this.stopScreenCallOnly();
+    this.screenCall = this.peer.call(this.guestId, stream, { metadata: { type: 'screen', streamType } });
   }
 
   public async startScreenShare() {
@@ -667,5 +692,33 @@ export class SignalingService {
     const state = { playing, time, speed };
     this.playbackState.set(state);
     this.broadcast('sync', { state });
+  }
+
+  public setLocalFileNoStream(fileName: string) {
+    this.stopScreenShare();
+    this.hostScreenStreamType.set('file');
+    this.hostScreenFileName.set(fileName);
+    this.broadcast('screen-start', { streamType: 'file', fileName });
+  }
+
+  public broadcastStreamFileNameOnly(fileName: string) {
+    this.hostScreenStreamType.set('file');
+    this.hostScreenFileName.set(fileName);
+    this.broadcast('screen-start', { streamType: 'file', fileName });
+  }
+
+  public notifyLocalFileStatus(loaded: boolean) {
+    this.broadcast(loaded ? 'local-file-loaded' : 'local-file-unloaded', {});
+  }
+
+  public stopScreenCallOnly() {
+    if (this.screenCall) {
+      try {
+        this.screenCall.close();
+      } catch (e) {
+        console.warn('Error closing screen call:', e);
+      }
+      this.screenCall = null;
+    }
   }
 }
