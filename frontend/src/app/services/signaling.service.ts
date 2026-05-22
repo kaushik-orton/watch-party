@@ -29,14 +29,29 @@ export class SignalingService {
   private readonly rtcConfig = {
     config: {
       iceServers: [
+        { urls: 'stun:stun.relay.metered.ca:80' },
         { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
         { urls: 'stun:stun2.l.google.com:19302' },
-        { urls: 'stun:stun3.l.google.com:19302' },
-        { urls: 'stun:stun4.l.google.com:19302' },
-        // TURN relay servers are required for cross-network connectivity (symmetric NAT, mobile carriers).
-        // The free openrelay.metered.ca servers are no longer operational.
-        // For production: set up coturn on a VPS, or use Metered.ca / Twilio / Xirsys free tier.
+        {
+          urls: 'turn:asia.relay.metered.ca:80',
+          username: 'd4f8ae01d391fe36bf24ccb2',
+          credential: 'DQh6QIGb5O/gZhON',
+        },
+        {
+          urls: 'turn:asia.relay.metered.ca:80?transport=tcp',
+          username: 'd4f8ae01d391fe36bf24ccb2',
+          credential: 'DQh6QIGb5O/gZhON',
+        },
+        {
+          urls: 'turn:asia.relay.metered.ca:443',
+          username: 'd4f8ae01d391fe36bf24ccb2',
+          credential: 'DQh6QIGb5O/gZhON',
+        },
+        {
+          urls: 'turns:asia.relay.metered.ca:443?transport=tcp',
+          username: 'd4f8ae01d391fe36bf24ccb2',
+          credential: 'DQh6QIGb5O/gZhON',
+        },
       ]
     }
   };
