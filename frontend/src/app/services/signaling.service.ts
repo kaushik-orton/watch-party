@@ -450,7 +450,18 @@ export class SignalingService {
 
     let stream: MediaStream | null = null;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          width: { ideal: 320, max: 480 },
+          height: { ideal: 240, max: 360 },
+          frameRate: { ideal: 15, max: 20 }
+        },
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
     } catch (error: any) {
       console.warn('Failed to access both video and audio. Error name:', error.name);
       
@@ -461,14 +472,28 @@ export class SignalingService {
         // Try fallback: video-only
         try {
           console.log('Attempting video-only fallback...');
-          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              width: { ideal: 320, max: 480 },
+              height: { ideal: 240, max: 360 },
+              frameRate: { ideal: 15, max: 20 }
+            },
+            audio: false
+          });
         } catch (videoError: any) {
           console.warn('Failed video-only fallback:', videoError.name);
           if (videoError.name !== 'NotAllowedError' && videoError.name !== 'PermissionDeniedError') {
             // Try fallback: audio-only
             try {
               console.log('Attempting audio-only fallback...');
-              stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+              stream = await navigator.mediaDevices.getUserMedia({
+                video: false,
+                audio: {
+                  echoCancellation: true,
+                  noiseSuppression: true,
+                  autoGainControl: true
+                }
+              });
             } catch (audioError) {
               console.error('All media device access options failed:', audioError);
             }

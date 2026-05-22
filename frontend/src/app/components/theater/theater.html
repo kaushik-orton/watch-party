@@ -2,8 +2,50 @@
   
   <!-- Header Bar -->
   <header class="header">
-    <div class="header-left"></div>
-    <div class="header-right"></div>
+    <div class="header-left">
+      <div class="room-pill">
+        <span class="pulse-dot"></span>
+        <span>Room: {{ signalingService.currentRoomId() }}</span>
+        <button class="header-copy-btn" (click)="copyRoomLink()" title="Copy Invitation Link">📋</button>
+      </div>
+      <div class="role-badge" [class.host]="signalingService.currentUser()?.isHost" [class.guest]="!signalingService.currentUser()?.isHost">
+        {{ signalingService.currentUser()?.isHost ? 'Host' : 'Guest' }}
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="bandwidth-badge glass" (click)="showBandwidthTips.set(!showBandwidthTips())" title="Click for bandwidth usage tips">
+        <span class="badge-icon">⚡</span>
+        <span class="badge-text">TURN Quota Optimizer</span>
+        <span class="badge-arrow">&#9662;</span>
+      </div>
+      <button class="icon-btn btn-danger" (click)="exitRoom()" title="Leave Room">🚪</button>
+      
+      @if (showBandwidthTips()) {
+        <div class="bandwidth-tips-dropdown glass glow-primary">
+          <div class="tips-header">
+            <h4>💡 TURN Server Quota Tips</h4>
+            <button class="close-tips" (click)="showBandwidthTips.set(false)">✖</button>
+          </div>
+          <div class="tips-body">
+            <p class="tips-intro">You are connected over a cross-network TURN relay (free monthly limit: 500MB). Save data with these tips:</p>
+            <ul class="tips-list">
+              <li>
+                <strong>📂 Local File Sync (Zero Bandwidth)</strong>
+                <p>If you and your partner have the same video file locally, load it on both sides. Movie stream bandwidth usage drops to zero!</p>
+              </li>
+              <li>
+                <strong>📷 Disable Webcams (Save ~95%)</strong>
+                <p>Webcam video uses TURN quota. Hide your camera using the "Hide Cam" button to use voice-only and save massive quota.</p>
+              </li>
+              <li>
+                <strong>⚙️ Low-Data Webcam Preset Active</strong>
+                <p>We've automatically optimized webcams to 240p/15fps, cutting data usage by 95% compared to HD.</p>
+              </li>
+            </ul>
+          </div>
+        </div>
+      }
+    </div>
   </header>
 
   <!-- Main Theater Arena -->

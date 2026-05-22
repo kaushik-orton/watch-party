@@ -41,6 +41,7 @@ export class TheaterComponent implements AfterViewInit, OnDestroy {
   public isControlsCollapsed = signal(false);
   public isWaitingBubbleCollapsed = signal(false);
   public isRemoteBubbleCollapsed = signal(false);
+  public showBandwidthTips = signal(false);
 
 
   // Floating bubbles draggable positions
@@ -252,13 +253,10 @@ export class TheaterComponent implements AfterViewInit, OnDestroy {
     setTimeout(() => {
       const videoElement = document.getElementById('watch-player') as HTMLVideoElement;
       if (videoElement) {
-        videoElement.src = fileUrl;
-        
-        if (this.signalingService.currentUser()?.isHost) {
-          if (this.isStreamingEnabled()) {
-            // Wait for metadata to load and capture the stream
-            videoElement.onloadedmetadata = () => {
-              // Capture stream (video + audio) from the video element at 24 FPS to keep the WebRTC stream active
+        const setupCapture = () => {
+          if (this.signalingService.currentUser()?.isHost) {
+            if (this.isStreamingEnabled()) {
+              console.log('[WP] Capturing video element stream for host...');
               let stream: MediaStream;
               const anyVideoEl = videoElement as any;
               if (anyVideoEl.captureStream) {
@@ -266,20 +264,36 @@ export class TheaterComponent implements AfterViewInit, OnDestroy {
               } else if (anyVideoEl.mozCaptureStream) {
                 stream = anyVideoEl.mozCaptureStream(24);
               } else {
-                console.error('Browser does not support captureStream()');
+                console.error('[WP] Browser does not support captureStream()');
                 return;
               }
 
               // Share this stream via the screen peer connection
               this.signalingService.setLocalFileStream(stream, file.name);
-            };
+            } else {
+              // No stream mode
+              this.signalingService.setLocalFileNoStream(file.name);
+            }
           } else {
-            // No stream mode
-            this.signalingService.setLocalFileNoStream(file.name);
+            // Guest mode: notify host that we loaded the file locally
+            this.signalingService.notifyLocalFileStatus(true);
           }
+        };
+
+        // Set source
+        videoElement.src = fileUrl;
+        
+        // If metadata is already loaded (readyState >= 1), process capture immediately.
+        // Otherwise wait for the loadedmetadata event.
+        if (videoElement.readyState >= 1) {
+          console.log('[WP] Local video metadata loaded immediately. Setting up stream capture...');
+          setupCapture();
         } else {
-          // Guest mode: notify host that we loaded the file locally
-          this.signalingService.notifyLocalFileStatus(true);
+          console.log('[WP] Waiting for local video metadata to load...');
+          videoElement.onloadedmetadata = () => {
+            console.log('[WP] Local video metadata loaded event fired. Setting up stream capture...');
+            setupCapture();
+          };
         }
       }
     }, 100);
