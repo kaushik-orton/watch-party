@@ -1,5 +1,7 @@
-import { Injectable, signal, WritableSignal } from '@angular/core';
+import { Injectable, signal, WritableSignal, inject } from '@angular/core';
+import { Router } from '@angular/router';
 import { Peer, MediaConnection, DataConnection } from 'peerjs';
+
 
 export interface User {
   id: string; // Peer ID
@@ -19,6 +21,7 @@ export interface ChatMessage {
   providedIn: 'root'
 })
 export class SignalingService {
+  private router = inject(Router);
   private peer: Peer | null = null;
   private dataConn: DataConnection | null = null;
   private guestId: string | null = null; // Used by host to track guest peer ID
@@ -97,6 +100,10 @@ export class SignalingService {
           this.currentUser.set({ id, username, isHost: true });
           this.users.set([{ id, username, isHost: true }]);
           safeResolve();
+        });
+        this.peer.on('disconnected', () => {
+          console.warn('Host peer disconnected from signaling server. Reconnecting...');
+          this.peer?.reconnect();
         });
         this.peer.on('error', (err) => {
           console.error('PeerJS Error:', err);
@@ -207,6 +214,11 @@ export class SignalingService {
           }
         });
 
+        this.peer.on('disconnected', () => {
+          console.warn('Guest peer disconnected from signaling server. Reconnecting...');
+          this.peer?.reconnect();
+        });
+
         this.peer.on('error', (err) => {
           console.error('PeerJS Error:', err);
           safeReject(err);
@@ -229,11 +241,22 @@ export class SignalingService {
     }
     this.stopLocalWebcam();
     this.stopScreenShare();
+    
+    // Reset all signals and variables to prevent stale state in new rooms
+    this.currentRoomId.set('');
+    this.currentUser.set(null);
     this.users.set([]);
     this.chatMessages.set([]);
     this.remoteWebcamStream.set(null);
     this.remoteScreenStream.set(null);
     this.isScreenSharing.set(false);
+    this.remoteStreamType.set('none');
+    this.hostScreenStreamType.set('none');
+    this.hostScreenFileName.set('');
+    this.remoteVideoFileName.set('');
+    this.playbackState.set({ playing: false, time: 0, speed: 1 });
+    this.dataConn = null;
+    this.guestId = null;
   }
 
   // --- Data Channel Events ---
@@ -268,6 +291,43 @@ export class SignalingService {
         }
       });
     });
+
+    conn.on('close', () => {
+      this.handleConnectionClose(conn);
+    });
+
+    conn.on('error', (err) => {
+      console.error('Data connection error:', err);
+      this.handleConnectionClose(conn);
+    });
+  }
+
+  private handleConnectionClose(conn: DataConnection) {
+    if (this.dataConn === conn) {
+      console.log('Active peer connection closed or lost.');
+      if (this.currentUser()?.isHost) {
+        // Guest disconnected
+        setTimeout(() => {
+          this.dataConn = null;
+          this.guestId = null;
+          this.remoteWebcamStream.set(null);
+          this.remoteScreenStream.set(null);
+          
+          // Re-set user list to just the host
+          const host = this.currentUser();
+          if (host) {
+            this.users.set([host]);
+          }
+        });
+      } else {
+        // Host disconnected
+        setTimeout(() => {
+          alert('The host has disconnected. You will be redirected back to the lobby.');
+          this.leaveRoom();
+          this.router.navigate(['/']);
+        });
+      }
+    }
   }
 
   private broadcast(type: string, payload: any) {
