@@ -69,7 +69,12 @@ export class SignalingService {
     speed: 1
   });
 
-  constructor() {}
+  constructor() {
+    // Synchronously leave room on page reload or close to prevent stale session IDs
+    window.addEventListener('beforeunload', () => {
+      this.leaveRoom();
+    });
+  }
 
   // --- Connection Logic (Serverless) ---
   
@@ -121,7 +126,7 @@ export class SignalingService {
           this.setupDataListeners(conn);
           
           // Send initial state to the guest once connected
-          conn.on('open', () => {
+          const onOpen = () => {
             this.broadcast('users', { users: this.users() });
             this.broadcast('sync', { state: this.playbackState() });
             
@@ -139,7 +144,13 @@ export class SignalingService {
             if (this.localScreenStream() && this.hostScreenStreamType() !== 'none') {
               this.initiateScreenCall(this.hostScreenStreamType() as 'screen' | 'file', this.hostScreenFileName());
             }
-          });
+          };
+
+          if (conn.open) {
+            onOpen();
+          } else {
+            conn.on('open', onOpen);
+          }
         });
 
         // Host receives webcam call from guest
@@ -157,7 +168,7 @@ export class SignalingService {
         
       } else {
         // Guest creates a random peer and connects to the host
-        this.peer = new Peer(this.rtcConfig);
+        this.peer = new Peer(undefined as any, this.rtcConfig);
 
         this.peer.on('open', (id) => {
           this.currentUser.set({ id, username, isHost: false });
@@ -168,7 +179,7 @@ export class SignalingService {
           this.setupDataListeners(conn);
           
           // Once connected, call the host with our webcam
-          conn.on('open', () => {
+          const onOpen = () => {
             setTimeout(() => {
               safeResolve();
 
@@ -181,7 +192,13 @@ export class SignalingService {
                 });
               }
             });
-          });
+          };
+
+          if (conn.open) {
+            onOpen();
+          } else {
+            conn.on('open', onOpen);
+          }
 
           conn.on('error', (err) => {
             console.error('Guest data connection error:', err);

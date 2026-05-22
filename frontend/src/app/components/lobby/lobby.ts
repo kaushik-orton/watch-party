@@ -67,7 +67,13 @@ export class LobbyComponent {
       await this.signalingService.joinRoom(targetRoomId, this.username(), isHost);
       this.router.navigate(['/room', targetRoomId]);
     } catch (err: any) {
-      console.error('Lobby room entry failed:', err);
+      console.error('Lobby room entry failed. Complete error details:', {
+        name: err?.name,
+        message: err?.message,
+        type: err?.type,
+        stack: err?.stack,
+        raw: err
+      });
       const errType = err?.type || '';
       const errMsg = (err?.message || '').toString().toLowerCase();
 
