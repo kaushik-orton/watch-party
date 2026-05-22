@@ -65,23 +65,19 @@ export class LobbyComponent {
 
     try {
       await this.signalingService.joinRoom(targetRoomId, this.username(), isHost);
+      this.router.navigate(['/room', targetRoomId]);
     } catch (err: any) {
-      // If joining fails because room host isn't available yet,
-      // promote this user to host of that room automatically.
+      console.error('Lobby room entry failed:', err);
       const errType = err?.type || '';
       const errMsg = (err?.message || '').toString().toLowerCase();
-      const roomUnavailable =
-        errType === 'peer-unavailable' ||
-        errMsg.includes('room-unavailable') ||
-        errMsg.includes('peer-unavailable');
 
-      if (!isHost && targetRoomId && roomUnavailable) {
-        await this.signalingService.joinRoom(targetRoomId, this.username(), true);
+      if (errType === 'unavailable-id' || errMsg.includes('taken')) {
+        alert('This room code is already in use by another active watch party. Please try a different code or start a new party.');
+      } else if (errType === 'peer-unavailable' || errMsg.includes('room-unavailable') || errMsg.includes('peer-unavailable')) {
+        alert('Could not find or connect to the watch party. Please make sure the room code is correct and the host is online.');
       } else {
-        throw err;
+        alert(`Failed to enter the room: ${err?.message || 'Connection lost or broker server error. Please try again.'}`);
       }
     }
-
-    this.router.navigate(['/room', targetRoomId]);
   }
 }

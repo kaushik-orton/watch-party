@@ -71,70 +71,10 @@ export class SignalingService {
   // --- Connection Logic (Serverless) ---
   
   public joinRoom(roomId: string, username: string, isHost: boolean): Promise<void> {
+    this.leaveRoom(); // Clean up any active/stale connections or states first!
     this.currentRoomId.set(roomId);
     
     return new Promise((resolve, reject) => {
-      if (isHost) {
-        // Host claims the specific room ID
-        this.peer = new Peer(roomId, this.rtcConfig);
-        this.peer.on('open', (id) => {
-          this.currentUser.set({ id, username, isHost: true });
-          this.users.set([{ id, username, isHost: true }]);
-          resolve();
-        });
-        this.peer.on('error', (err) => {
-          console.error('PeerJS Error:', err);
-          reject(err);
-        });
-
-      // Host receives data connection from guest
-      this.peer.on('connection', (conn) => {
-        this.dataConn = conn;
-        this.guestId = conn.peer;
-        
-        const guestName = (conn.metadata as any)?.username || 'Guest';
-        this.users.update(u => [...u, { id: conn.peer, username: guestName, isHost: false }]);
-        
-        this.setupDataListeners(conn);
-        
-        // Send initial state to the guest once connected
-        conn.on('open', () => {
-          this.broadcast('users', { users: this.users() });
-          this.broadcast('sync', { state: this.playbackState() });
-          
-          // Call guest if our camera is already ready
-          if (this.localWebcamStream()) {
-            const call = this.peer!.call(this.guestId!, this.localWebcamStream()!, { metadata: { type: 'webcam' } });
-            call.on('stream', (remoteStream) => {
-              setTimeout(() => {
-                this.remoteWebcamStream.set(remoteStream);
-              });
-            });
-          }
-          
-          // If host is already sharing a screen/file, send it to the late-joining guest
-          if (this.localScreenStream() && this.hostScreenStreamType() !== 'none') {
-            this.initiateScreenCall(this.hostScreenStreamType() as 'screen' | 'file', this.hostScreenFileName());
-          }
-        });
-      });
-
-      // Host receives webcam call from guest
-      this.peer.on('call', (call) => {
-        if ((call.metadata as any)?.type === 'webcam') {
-          // Answer with our webcam (even if null)
-          call.answer(this.localWebcamStream() || undefined);
-          call.on('stream', (remoteStream) => {
-            setTimeout(() => {
-              this.remoteWebcamStream.set(remoteStream);
-            });
-          });
-        }
-      });
-      
-    } else {
-      // Guest creates a random peer and connects to the host
-      this.peer = new Peer(this.rtcConfig);
       let settled = false;
       const safeResolve = () => {
         if (!settled) {
@@ -145,77 +85,140 @@ export class SignalingService {
       const safeReject = (err: unknown) => {
         if (!settled) {
           settled = true;
+          this.leaveRoom(); // Ensure we destroy the failed peer instance
           reject(err);
         }
       };
 
-      this.peer.on('open', (id) => {
-        this.currentUser.set({ id, username, isHost: false });
+      if (isHost) {
+        // Host claims the specific room ID
+        this.peer = new Peer(roomId, this.rtcConfig);
+        this.peer.on('open', (id) => {
+          this.currentUser.set({ id, username, isHost: true });
+          this.users.set([{ id, username, isHost: true }]);
+          safeResolve();
+        });
+        this.peer.on('error', (err) => {
+          console.error('PeerJS Error:', err);
+          safeReject(err);
+        });
 
-        // Open data connection
-        const conn = this.peer!.connect(roomId, { metadata: { username } });
-        this.dataConn = conn;
-        this.setupDataListeners(conn);
-        
-        // Once connected, call the host with our webcam
-        conn.on('open', () => {
-          setTimeout(() => {
-            safeResolve();
-
+        // Host receives data connection from guest
+        this.peer.on('connection', (conn) => {
+          this.dataConn = conn;
+          this.guestId = conn.peer;
+          
+          const guestName = (conn.metadata as any)?.username || 'Guest';
+          this.users.update(u => [...u, { id: conn.peer, username: guestName, isHost: false }]);
+          
+          this.setupDataListeners(conn);
+          
+          // Send initial state to the guest once connected
+          conn.on('open', () => {
+            this.broadcast('users', { users: this.users() });
+            this.broadcast('sync', { state: this.playbackState() });
+            
+            // Call guest if our camera is already ready
             if (this.localWebcamStream()) {
-              const call = this.peer!.call(roomId, this.localWebcamStream()!, { metadata: { type: 'webcam' } });
+              const call = this.peer!.call(this.guestId!, this.localWebcamStream()!, { metadata: { type: 'webcam' } });
               call.on('stream', (remoteStream) => {
                 setTimeout(() => {
                   this.remoteWebcamStream.set(remoteStream);
                 });
               });
             }
+            
+            // If host is already sharing a screen/file, send it to the late-joining guest
+            if (this.localScreenStream() && this.hostScreenStreamType() !== 'none') {
+              this.initiateScreenCall(this.hostScreenStreamType() as 'screen' | 'file', this.hostScreenFileName());
+            }
           });
         });
 
-        conn.on('error', (err) => {
-          console.error('Guest data connection error:', err);
+        // Host receives webcam call from guest
+        this.peer.on('call', (call) => {
+          if ((call.metadata as any)?.type === 'webcam') {
+            // Answer with our webcam (even if null)
+            call.answer(this.localWebcamStream() || undefined);
+            call.on('stream', (remoteStream) => {
+              setTimeout(() => {
+                this.remoteWebcamStream.set(remoteStream);
+              });
+            });
+          }
+        });
+        
+      } else {
+        // Guest creates a random peer and connects to the host
+        this.peer = new Peer(this.rtcConfig);
+
+        this.peer.on('open', (id) => {
+          this.currentUser.set({ id, username, isHost: false });
+
+          // Open data connection
+          const conn = this.peer!.connect(roomId, { metadata: { username } });
+          this.dataConn = conn;
+          this.setupDataListeners(conn);
+          
+          // Once connected, call the host with our webcam
+          conn.on('open', () => {
+            setTimeout(() => {
+              safeResolve();
+
+              if (this.localWebcamStream()) {
+                const call = this.peer!.call(roomId, this.localWebcamStream()!, { metadata: { type: 'webcam' } });
+                call.on('stream', (remoteStream) => {
+                  setTimeout(() => {
+                    this.remoteWebcamStream.set(remoteStream);
+                  });
+                });
+              }
+            });
+          });
+
+          conn.on('error', (err) => {
+            console.error('Guest data connection error:', err);
+            safeReject(err);
+          });
+        });
+        
+        // Guest receives calls from host
+        this.peer.on('call', (call) => {
+          if ((call.metadata as any)?.type === 'webcam') {
+            // Answer with our webcam (even if null)
+            call.answer(this.localWebcamStream() || undefined);
+            call.on('stream', (remoteStream) => {
+              setTimeout(() => {
+                this.remoteWebcamStream.set(remoteStream);
+              });
+            });
+          }
+          else if ((call.metadata as any)?.type === 'screen') {
+            call.answer(); // Answer without stream to just receive
+            setTimeout(() => {
+              const streamType = (call.metadata as any)?.streamType || 'screen';
+              this.remoteStreamType.set(streamType);
+            });
+            call.on('stream', (remoteStream) => {
+              setTimeout(() => {
+                this.remoteScreenStream.set(remoteStream);
+              });
+            });
+          }
+        });
+
+        this.peer.on('error', (err) => {
+          console.error('PeerJS Error:', err);
           safeReject(err);
         });
-      });
-      
-      // Guest receives calls from host
-      this.peer.on('call', (call) => {
-        if ((call.metadata as any)?.type === 'webcam') {
-          // Answer with our webcam (even if null)
-          call.answer(this.localWebcamStream() || undefined);
-          call.on('stream', (remoteStream) => {
-            setTimeout(() => {
-              this.remoteWebcamStream.set(remoteStream);
-            });
-          });
-        }
-        else if ((call.metadata as any)?.type === 'screen') {
-          call.answer(); // Answer without stream to just receive
-          setTimeout(() => {
-            const streamType = (call.metadata as any)?.streamType || 'screen';
-            this.remoteStreamType.set(streamType);
-          });
-          call.on('stream', (remoteStream) => {
-            setTimeout(() => {
-              this.remoteScreenStream.set(remoteStream);
-            });
-          });
-        }
-      });
 
-      this.peer.on('error', (err) => {
-        console.error('PeerJS Error:', err);
-        safeReject(err);
-      });
-
-      // If room host is unreachable/non-existent, fail fast so caller can handle fallback.
-      setTimeout(() => {
-        if (!settled && (!this.dataConn || !this.dataConn.open)) {
-          safeReject(new Error('room-unavailable'));
-        }
-      }, 8000);
-      } // Closes else block
+        // If room host is unreachable/non-existent, fail fast so caller can handle fallback.
+        setTimeout(() => {
+          if (!settled && (!this.dataConn || !this.dataConn.open)) {
+            safeReject(new Error('room-unavailable'));
+          }
+        }, 15000);
+      }
     });
   }
 
